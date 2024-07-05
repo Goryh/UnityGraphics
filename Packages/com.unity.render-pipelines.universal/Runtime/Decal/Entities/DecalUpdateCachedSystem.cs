@@ -191,7 +191,7 @@ namespace UnityEngine.Rendering.Universal
 #endif
         public unsafe struct UpdateTransformsJob : IJobParallelForTransform
         {
-            private static readonly quaternion k_MinusYtoZRotation = quaternion.EulerXYZ(-math.PI / 2.0f, 0, 0);
+            //private static readonly quaternion k_MinusYtoZRotation = quaternion.EulerXYZ(-math.PI / 2.0f, 0, 0);
 
             public NativeArray<float3> positions;
             public NativeArray<quaternion> rotations;
@@ -213,6 +213,8 @@ namespace UnityEngine.Rendering.Universal
 
             public void Execute(int index, TransformAccess transform)
             {
+				quaternion k_MinusYtoZRotation = quaternion.EulerXYZ(-math.PI / 2.0f, 0, 0);
+
                 // Check if transform changed
                 bool positionChanged = math.distancesq(transform.position, positions[index]) > minDistance;
                 if (positionChanged)
