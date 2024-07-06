@@ -234,7 +234,7 @@ namespace UnityEngine.Rendering.Universal
                 if (scaleModes[index] == DecalScaleMode.InheritFromHierarchy)
                 {
                     localToWorld = transform.localToWorldMatrix;
-                    localToWorld = math.mul(localToWorld, new float4x4(k_MinusYtoZRotation, float3.zero));
+                    localToWorld = math.mul(localToWorld, new float4x4(k_MinusYtoZRotation, float3c.zero));
                 }
                 else
                 {

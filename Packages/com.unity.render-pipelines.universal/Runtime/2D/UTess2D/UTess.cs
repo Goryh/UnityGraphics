@@ -618,7 +618,7 @@ namespace UnityEngine.Rendering.Universal.UTess
         static void GraphConditioner(NativeArray<float2> points, ref NativeArray<float2> pgPoints, ref int pgPointCount, ref NativeArray<int2> pgEdges, ref int pgEdgeCount, bool resetTopology)
         {
             var min = new float2(math.INFINITY, math.INFINITY);
-            var max = float2.zero;
+            var max = float2c.zero;
             for (int i = 0; i < points.Length; ++i)
             {
                 min = math.min(points[i], min);
@@ -674,7 +674,7 @@ namespace UnityEngine.Rendering.Universal.UTess
         public static float4 ConvexQuad(Allocator allocator, NativeArray<float2> points, NativeArray<int2> edges, ref NativeArray<float2> outVertices, ref int outVertexCount, ref NativeArray<int> outIndices, ref int outIndexCount, ref NativeArray<int2> outEdges, ref int outEdgeCount)
         {
             // Inputs are garbage, just early out.
-            float4 ret = float4.zero;
+            float4 ret = float4c.zero;
             outEdgeCount = 0; outIndexCount = 0; outVertexCount = 0;
             if (points.Length < 3 || points.Length >= kMaxVertexCount)
                 return ret;
@@ -697,7 +697,7 @@ namespace UnityEngine.Rendering.Universal.UTess
         public static float4 Tessellate(Allocator allocator, NativeArray<float2> points, NativeArray<int2> edges, ref NativeArray<float2> outVertices, ref int outVertexCount, ref NativeArray<int> outIndices, ref int outIndexCount, ref NativeArray<int2> outEdges, ref int outEdgeCount)
         {
             // Inputs are garbage, just early out.
-            float4 ret = float4.zero;
+            float4 ret = float4c.zero;
             outEdgeCount = 0; outIndexCount = 0; outVertexCount = 0;
             if (points.Length < 3 || points.Length >= kMaxVertexCount)
                 return ret;
