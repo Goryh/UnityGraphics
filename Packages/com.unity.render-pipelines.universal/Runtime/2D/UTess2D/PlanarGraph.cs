@@ -206,11 +206,11 @@ namespace UnityEngine.Rendering.Universal.UTess
                 var e = intr.x;
                 var f = intr.y;
 
-                int2 j1 = int2.zero;
+                int2 j1 = int2c.zero;
                 j1.x = e;
                 j1.y = pointCount;
                 tJunctions[tJunctionCount++] = j1;
-                int2 j2 = int2.zero;
+                int2 j2 = int2c.zero;
                 j2.x = f;
                 j2.y = pointCount;
                 tJunctions[tJunctionCount++] = j2;

@@ -445,7 +445,7 @@ namespace UnityEngine.Rendering.Universal
             var color = new Color(0, 0, batchColor, 1.0f);
             vertices[centerIndex] = new LightMeshVertex
             {
-                position = float3.zero,
+                position = float3c.zero,
                 color = color
             };
 
