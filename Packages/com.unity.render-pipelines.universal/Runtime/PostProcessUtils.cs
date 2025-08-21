@@ -100,7 +100,7 @@ namespace UnityEngine.Rendering.Universal
             float rndOffsetY = 0f;
 #else
             var oldState = Random.state;
-            Random.InitState(Time.frameCount);
+            Random.InitState(settings.isStatic.value ? 100500 : Time.frameCount);
             float rndOffsetX = Random.value;
             float rndOffsetY = Random.value;
             Random.state = oldState;

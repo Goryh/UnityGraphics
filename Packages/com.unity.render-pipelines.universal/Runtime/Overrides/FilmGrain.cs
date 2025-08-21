@@ -96,6 +96,8 @@ namespace UnityEngine.Rendering.Universal
         [Tooltip("A tileable texture to use for the grain. The neutral value is 0.5 where no grain is applied.")]
         public NoInterpTextureParameter texture = new NoInterpTextureParameter(null);
 
+        public BoolParameter isStatic = new BoolParameter(false);
+
         /// <inheritdoc/>
         public bool IsActive() => intensity.value > 0f && (type.value != FilmGrainLookup.Custom || texture.value != null);
 

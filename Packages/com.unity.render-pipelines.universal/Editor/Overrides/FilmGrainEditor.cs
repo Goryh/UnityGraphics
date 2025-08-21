@@ -10,6 +10,7 @@ namespace UnityEditor.Rendering.Universal
         SerializedDataParameter m_Intensity;
         SerializedDataParameter m_Response;
         SerializedDataParameter m_Texture;
+		SerializedDataParameter m_IsStatic;
 
         public override void OnEnable()
         {
@@ -19,6 +20,7 @@ namespace UnityEditor.Rendering.Universal
             m_Intensity = Unpack(o.Find(x => x.intensity));
             m_Response = Unpack(o.Find(x => x.response));
             m_Texture = Unpack(o.Find(x => x.texture));
+			m_IsStatic = Unpack(o.Find(x => x.isStatic));
         }
 
         public override void OnInspectorGUI()
@@ -54,6 +56,7 @@ namespace UnityEditor.Rendering.Universal
 
             PropertyField(m_Intensity);
             PropertyField(m_Response);
+			PropertyField(m_IsStatic);
         }
 
         static void SetTextureImportSettings(TextureImporter importer)
