@@ -1503,13 +1503,24 @@ namespace UnityEngine.Rendering.Universal
                     center = xrPass.ApplyXRViewCenterOffset(center);
             }
 #endif
+			
+			float customAspect = m_Vignette.customAspect.value;
+			float aspectX = 1;
+			float aspectY = 1;
+			if( customAspect > 0 )
+			{
+				if( customAspect < aspectRatio )
+					aspectX = aspectRatio / customAspect;
+				else
+					aspectY = customAspect / aspectRatio;
+			}
 
             var v1 = new Vector4(
                 color.r, color.g, color.b,
                 m_Vignette.rounded.value ? aspectRatio : 1f
             );
             var v2 = new Vector4(
-                center.x, center.y,
+                aspectX, aspectY,
                 m_Vignette.intensity.value * 3f,
                 m_Vignette.smoothness.value * 5f
             );

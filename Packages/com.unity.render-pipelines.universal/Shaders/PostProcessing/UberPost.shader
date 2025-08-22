@@ -91,11 +91,11 @@ Shader "Hidden/Universal Render Pipeline/UberPost"
         #define VignetteCenterEye0      _Vignette_ParamsXR.xy
         #define VignetteCenterEye1      _Vignette_ParamsXR.zw
     #else
-        #define VignetteCenter          _Vignette_Params2.xy
+        //#define VignetteCenter          _Vignette_Params2.xy
     #endif
         #define VignetteIntensity       _Vignette_Params2.z
         #define VignetteSmoothness      _Vignette_Params2.w
-        #define VignetteRoundness       _Vignette_Params1.w
+        #define VignetteRoundness       _Vignette_Params2.xy
 
         #define LutParams               _Lut_Params.xyz
         #define PostExposure            _Lut_Params.w
@@ -234,6 +234,8 @@ Shader "Hidden/Universal Render Pipeline/UberPost"
                 // With XR, the views can use asymmetric FOV which will have the center of each
                 // view be at a different location.
                 const float2 VignetteCenter = unity_StereoEyeIndex == 0 ? VignetteCenterEye0 : VignetteCenterEye1;
+			#else
+				const float2 VignetteCenter = float2(0.5f, 0.5f);
             #endif
 
                 color = ApplyVignette(color, uvDistorted, VignetteCenter, VignetteIntensity, VignetteRoundness, VignetteSmoothness, VignetteColor);
