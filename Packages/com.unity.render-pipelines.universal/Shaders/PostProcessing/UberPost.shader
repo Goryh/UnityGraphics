@@ -1,18 +1,18 @@
 Shader "Hidden/Universal Render Pipeline/UberPost"
 {
     HLSLINCLUDE
-        #pragma multi_compile_local_fragment _ _DISTORTION
-        #pragma multi_compile_local_fragment _ _CHROMATIC_ABERRATION
-        #pragma multi_compile_local_fragment _ _BLOOM_LQ _BLOOM_HQ _BLOOM_LQ_DIRT _BLOOM_HQ_DIRT
-        #pragma multi_compile_local_fragment _ _HDR_GRADING _TONEMAP_ACES _TONEMAP_NEUTRAL
-        #pragma multi_compile_local_fragment _ _FILM_GRAIN
-        #pragma multi_compile_local_fragment _ _DITHERING
+        #pragma shader_feature_local_fragment _ _DISTORTION
+        #pragma shader_feature_local_fragment _ _CHROMATIC_ABERRATION
+        #pragma shader_feature_local_fragment _ _BLOOM_LQ _BLOOM_HQ _BLOOM_LQ_DIRT _BLOOM_HQ_DIRT
+        #pragma multi_compile_local_fragment _ _HDR_GRADING _TONEMAP_NEUTRAL
+        #pragma shader_feature_local_fragment _ _FILM_GRAIN
+        #pragma shader_feature_local_fragment _ _DITHERING
         #pragma multi_compile_local_fragment _ _GAMMA_20 _LINEAR_TO_SRGB_CONVERSION
         #pragma multi_compile_local_fragment _ _USE_FAST_SRGB_LINEAR_CONVERSION
         #pragma multi_compile_local_fragment _ _ENABLE_ALPHA_OUTPUT
         #include_with_pragmas "Packages/com.unity.render-pipelines.core/ShaderLibrary/FoveatedRenderingKeywords.hlsl"
-        #pragma multi_compile_fragment _ DEBUG_DISPLAY
-        #pragma multi_compile_fragment _ SCREEN_COORD_OVERRIDE
+        #pragma shader_feature_fragment _ DEBUG_DISPLAY
+        #pragma shader_feature_fragment _ SCREEN_COORD_OVERRIDE
         #pragma multi_compile_local_fragment _ HDR_INPUT HDR_ENCODING
 
         #pragma dynamic_branch_local_fragment _ _HDR_OVERLAY

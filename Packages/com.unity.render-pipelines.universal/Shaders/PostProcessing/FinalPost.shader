@@ -1,14 +1,14 @@
 Shader "Hidden/Universal Render Pipeline/FinalPost"
 {
     HLSLINCLUDE
-        #pragma multi_compile_local_fragment _ _POINT_SAMPLING _RCAS _EASU_RCAS_AND_HDR_INPUT
-        #pragma multi_compile_local_fragment _ _FXAA
-        #pragma multi_compile_local_fragment _ _FILM_GRAIN
-        #pragma multi_compile_local_fragment _ _DITHERING
+        #pragma shader_feature_local_fragment _ _POINT_SAMPLING _RCAS _EASU_RCAS_AND_HDR_INPUT
+        #pragma shader_feature_local_fragment _ _FXAA
+        #pragma shader_feature_local_fragment _ _FILM_GRAIN
+        #pragma shader_feature_local_fragment _ _DITHERING
         #pragma multi_compile_local_fragment _ _LINEAR_TO_SRGB_CONVERSION
         #pragma multi_compile_local_fragment _ _ENABLE_ALPHA_OUTPUT
-        #pragma multi_compile_fragment _ DEBUG_DISPLAY
-        #pragma multi_compile_fragment _ SCREEN_COORD_OVERRIDE
+        #pragma shader_feature_fragment _ DEBUG_DISPLAY
+        #pragma shader_feature_fragment _ SCREEN_COORD_OVERRIDE
         #pragma multi_compile_local_fragment _ HDR_INPUT HDR_COLORSPACE_CONVERSION HDR_ENCODING HDR_COLORSPACE_CONVERSION_AND_ENCODING
 
         #pragma dynamic_branch_local_fragment _ _HDR_OVERLAY
