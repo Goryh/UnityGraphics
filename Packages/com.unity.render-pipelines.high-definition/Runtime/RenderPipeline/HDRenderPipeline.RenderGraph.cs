@@ -144,6 +144,8 @@ namespace UnityEngine.Rendering.HighDefinition
                 }
                 else if (hdCamera.frameSettings.IsEnabled(FrameSettingsField.RayTracing) && pathTracing.enable.value && hdCamera.camera.cameraType != CameraType.Preview && GetRayTracingState() && GetRayTracingClusterState())
                 {
+                    m_TileAndClusterData.listsAreClear = false;
+
                     // We only request the light cluster if we are gonna use it for debug mode
                     if (FullScreenDebugMode.LightCluster == m_CurrentDebugDisplaySettings.data.fullScreenDebugMode && GetRayTracingClusterState())
                     {
@@ -1002,7 +1004,7 @@ namespace UnityEngine.Rendering.HighDefinition
         TextureHandle CreateOffscreenUIDepthBuffer(RenderGraph renderGraph, MSAASamples msaaSamples, Rect viewport)
         {
             return renderGraph.CreateTexture(new TextureDesc((int)viewport.width, (int)viewport.height, false, true)
-                { format = GraphicsFormat.D32_SFloat_S8_UInt, clearBuffer = true, msaaSamples = msaaSamples, name = "UI Depth Buffer" });
+                { format = CoreUtils.GetDefaultDepthStencilFormat(), clearBuffer = true, msaaSamples = msaaSamples, name = "UI Depth Buffer" });
         }
 
 
@@ -1165,7 +1167,7 @@ namespace UnityEngine.Rendering.HighDefinition
                 {
                     // if refraction is disabled, we did not create a copy of the depth buffer, so we need to create a dummy one here.
                     passData.depthAndStencil = builder.CreateTransientTexture(new TextureDesc(Vector2.one, true, true)
-                    { format = GraphicsFormat.D32_SFloat_S8_UInt, bindTextureMS = hdCamera.msaaSamples != MSAASamples.None, msaaSamples = hdCamera.msaaSamples, clearBuffer = false, name = "Dummy Depth", disableFallBackToImportedTexture = true, fallBackToBlackTexture = false});
+                    { format = CoreUtils.GetDefaultDepthStencilFormat(), bindTextureMS = hdCamera.msaaSamples != MSAASamples.None, msaaSamples = hdCamera.msaaSamples, clearBuffer = false, name = "Dummy Depth", disableFallBackToImportedTexture = true, fallBackToBlackTexture = false});
                 }
                 else
                 {

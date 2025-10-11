@@ -1157,11 +1157,66 @@ namespace UnityEngine.Rendering.Tests
             public NativeArray<byte> pixels;
         }
 
-        private bool m_AsyncReadbackDone = false;
+        [Test]
+        public void ImportedTexturesAreClearedOnFirstUse()
+        {
+            bool asyncReadbackDone = false;
+            const int kWidth = 4;
+            const int kHeight = 4;
+            const GraphicsFormat format = GraphicsFormat.R8G8B8A8_SRGB;
+
+            NativeArray<byte> pixels = default;
+
+            m_RenderGraphTestPipeline.recordRenderGraphBody = (context, camera, cmd) =>
+            {
+                var redTexture = CreateRedTexture(kWidth, kHeight);
+                ImportResourceParams importParams = new ImportResourceParams()
+                {
+                    clearColor = Color.blue, clearOnFirstUse = true
+                };
+                var importedTexture = m_RenderGraph.ImportTexture(redTexture, importParams);
+
+                pixels = new NativeArray<byte>(kWidth * kHeight * 4, Allocator.Persistent,
+                    NativeArrayOptions.UninitializedMemory);
+
+                using (var builder =
+                       m_RenderGraph.AddUnsafePass<RenderGraphAsyncRequestTestData>("ImportedTextureTest", out var passData))
+                {
+                    builder.AllowPassCulling(false);
+                    builder.UseTexture(importedTexture, AccessFlags.ReadWrite);
+
+                    passData.texture = importedTexture;
+                    passData.pixels = pixels;
+
+                    builder.SetRenderFunc((RenderGraphAsyncRequestTestData data, UnsafeGraphContext context) =>
+                    {
+                        context.cmd.RequestAsyncReadbackIntoNativeArray(ref data.pixels, data.texture, 0, format,
+                            request => RenderGraphTest_AsyncReadbackCallback(request, ref asyncReadbackDone));
+                    });
+                }
+            };
+
+            m_Camera.Render();
+
+            AsyncGPUReadback.WaitAllRequests();
+            Assert.True(asyncReadbackDone);
+
+            // Texture should be clear color instead of original red color
+            for (int i = 0; i < kWidth * kHeight; i += 4)
+            {
+                Assert.True(pixels[i] / 255.0f == Color.blue.r);
+                Assert.True(pixels[i + 1] / 255.0f == Color.blue.g);
+                Assert.True(pixels[i + 2] / 255.0f == Color.blue.b);
+                Assert.True(pixels[i + 3] / 255.0f == Color.blue.a);
+            }
+
+            pixels.Dispose();
+        }
 
         [Test]
         public void RequestAsyncReadbackIntoNativeArrayWorks()
         {
+            bool asyncReadbackDone = false;
             const int kWidth = 4;
             const int kHeight = 4;
             const GraphicsFormat format = GraphicsFormat.R8G8B8A8_SRGB;
@@ -1193,7 +1248,8 @@ namespace UnityEngine.Rendering.Tests
 
                     builder.SetRenderFunc((RenderGraphAsyncRequestTestData data, UnsafeGraphContext context) =>
                     {
-                        context.cmd.RequestAsyncReadbackIntoNativeArray(ref data.pixels, data.texture, 0, format, RenderGraphTest_AsyncReadbackCallback);
+                        context.cmd.RequestAsyncReadbackIntoNativeArray(ref data.pixels, data.texture, 0, format,
+                            request => RenderGraphTest_AsyncReadbackCallback(request, ref asyncReadbackDone));
                     });
                 }
             };
@@ -1202,7 +1258,7 @@ namespace UnityEngine.Rendering.Tests
 
             AsyncGPUReadback.WaitAllRequests();
 
-            Assert.True(m_AsyncReadbackDone);
+            Assert.True(asyncReadbackDone);
 
             for (int i = 0; i < kWidth * kHeight; i += 4)
             {
@@ -1215,16 +1271,16 @@ namespace UnityEngine.Rendering.Tests
             pixels.Dispose();
         }
 
-        void RenderGraphTest_AsyncReadbackCallback(AsyncGPUReadbackRequest request)
+        void RenderGraphTest_AsyncReadbackCallback(AsyncGPUReadbackRequest request, ref bool asyncReadbackDone)
         {
             if (request.hasError)
             {
                 // We shouldn't have any error, asserting.
-                Assert.True(m_AsyncReadbackDone);
+                Assert.True(asyncReadbackDone);
             }
             else if (request.done)
             {
-                m_AsyncReadbackDone = true;
+                asyncReadbackDone = true;
             }
         }
 
@@ -1468,6 +1524,49 @@ namespace UnityEngine.Rendering.Tests
 
             // Ensure that the Render Graph data structures can be reinitialized at runtime, even native ones
             Assert.DoesNotThrow(() => m_Camera.Render());
+        }
+
+        class TempAllocTestData
+        {
+            public TextureHandle whiteTexture;
+        }
+
+        [Test]
+        public void GetTempMaterialPropertyBlockAreReleasedAfterRenderGraphNodeExecution()
+        {
+            m_RenderGraphTestPipeline.recordRenderGraphBody = (context, camera, cmd) =>
+            {
+                using (var builder = m_RenderGraph.AddUnsafePass<TempAllocTestData>("MPBPass", out var passData))
+                {
+                    builder.AllowPassCulling(false);
+                    passData.whiteTexture = m_RenderGraph.defaultResources.whiteTexture;
+
+                    builder.SetRenderFunc((TempAllocTestData data, UnsafeGraphContext context) =>
+                    {
+                        // no temp alloc yet
+                        Assert.IsTrue(context.renderGraphPool.IsEmpty());
+
+                        var mpb = context.renderGraphPool.GetTempMaterialPropertyBlock();
+                        mpb.SetTexture(k_DefaultWhiteTextureID, data.whiteTexture);
+
+                        // memory temporarily allocated
+                        Assert.IsFalse(context.renderGraphPool.IsEmpty());
+                    });
+                }
+
+                using (var builder = m_RenderGraph.AddUnsafePass<TempAllocTestData>("PostPass", out var passData))
+                {
+                    builder.AllowPassCulling(false);
+
+                    builder.SetRenderFunc((TempAllocTestData data, UnsafeGraphContext context) =>
+                    {
+                        // memory has been deallocated at the end of the previous RG node, no leak
+                        Assert.IsTrue(context.renderGraphPool.IsEmpty());
+                    });
+                }
+            };
+
+            m_Camera.Render();
         }
     }
 }
