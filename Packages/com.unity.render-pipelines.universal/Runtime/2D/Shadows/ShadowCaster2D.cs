@@ -19,7 +19,7 @@ namespace UnityEngine.Rendering.Universal
     [CoreRPHelpURL("2DShadows", "com.unity.render-pipelines.universal")]
     [ExecuteInEditMode]
     [DisallowMultipleComponent]
-
+    [Icon("UnityEngine/UI/Shadow Icon")]
     [AddComponentMenu("Rendering/2D/Shadow Caster 2D")]
     [MovedFrom(false, "UnityEngine.Experimental.Rendering.Universal", "com.unity.render-pipelines.universal")]
 
@@ -274,9 +274,9 @@ namespace UnityEngine.Rendering.Universal
         {
             // Oddly adding and subtracting vectors is expensive here because of the new structures created...
             Vector3 deltaPos;
-            deltaPos.x = light.m_CachedPosition.x - boundingSphere.position.x;
-            deltaPos.y = light.m_CachedPosition.y - boundingSphere.position.y;
-            deltaPos.z = light.m_CachedPosition.z - boundingSphere.position.z;
+            deltaPos.x = light.boundingSphere.position.x - boundingSphere.position.x;
+            deltaPos.y = light.boundingSphere.position.y - boundingSphere.position.y;
+            deltaPos.z = light.boundingSphere.position.z - boundingSphere.position.z;
 
             float distanceSq = Vector3.SqrMagnitude(deltaPos);
 

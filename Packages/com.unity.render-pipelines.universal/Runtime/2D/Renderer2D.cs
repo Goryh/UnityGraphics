@@ -140,6 +140,7 @@ namespace UnityEngine.Rendering.Universal
             m_DrawOffscreenUIPass?.Dispose();
             m_DrawOverlayUIPass?.Dispose();
             Light2DManager.Dispose();
+            LensFlareCommonSRP.Dispose();
 #if ENABLE_VR && ENABLE_XR_MODULE
             XRSystem.Dispose();
 #endif
@@ -193,7 +194,8 @@ namespace UnityEngine.Rendering.Universal
                     || cameraData.cameraTargetDescriptor.msaaSamples > 1 && UniversalRenderer.PlatformRequiresExplicitMsaaResolve()
                     || m_Renderer2DData.useCameraSortingLayerTexture
                     || !Mathf.Approximately(cameraData.renderScale, 1.0f)
-                    || (DebugHandler != null && DebugHandler.WriteToDebugScreenTexture(cameraData.resolveFinalTarget));
+                    || (DebugHandler != null && DebugHandler.WriteToDebugScreenTexture(cameraData.resolveFinalTarget))
+                    || cameraData.captureActions != null;
 
             return inputSummary;
         }
