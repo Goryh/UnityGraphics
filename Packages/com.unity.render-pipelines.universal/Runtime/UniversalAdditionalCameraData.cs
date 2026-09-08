@@ -223,6 +223,9 @@ namespace UnityEngine.Rendering.Universal
 
             camera.GetVolumeLayerMaskAndTrigger(cameraData, out LayerMask layerMask, out Transform trigger);
             VolumeManager.instance.Update(cameraData.volumeStack, trigger, layerMask);
+
+            // The color grading LUT is baked from the volume stack, so it is only rebuilt when the stack is updated.
+            cameraData.colorGradingLutCache?.SetDirty();
         }
 
         /// <summary>
@@ -354,6 +357,9 @@ namespace UnityEngine.Rendering.Universal
 
         // The URP camera history texture manager. Persistent per camera textures.
         [NonSerialized] internal UniversalCameraHistory m_History = new UniversalCameraHistory();
+
+        // Persistent per camera color grading LUT. Rendered on demand instead of every frame.
+        [NonSerialized] internal ColorGradingLutCache m_ColorGradingLutCache = new ColorGradingLutCache();
 
         [SerializeField] internal TemporalAA.Settings m_TaaSettings = TemporalAA.Settings.Create();
 
@@ -702,6 +708,11 @@ namespace UnityEngine.Rendering.Universal
         // Therefore it owns the UniversalCameraHistory. The history should follow the camera lifetime.
         internal UniversalCameraHistory historyManager => m_History;
 
+        // Returns the cached internal color grading LUT of this camera.
+        // The LUT is camera specific because the volume stack it is baked from is camera specific,
+        // so the cache is owned by the camera and follows its lifetime.
+        internal ColorGradingLutCache colorGradingLutCache => m_ColorGradingLutCache;
+
         /// <summary>
         /// Motion data that persists over a frame.
         /// </summary>
@@ -865,6 +876,8 @@ namespace UnityEngine.Rendering.Universal
                 GetRawRenderer()?.ReleaseRenderTargets();
             m_History?.Dispose();
             m_History = null;
+            m_ColorGradingLutCache?.Dispose();
+            m_ColorGradingLutCache = null;
         }
         
         

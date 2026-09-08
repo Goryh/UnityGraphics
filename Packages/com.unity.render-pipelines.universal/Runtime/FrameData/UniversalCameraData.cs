@@ -195,6 +195,10 @@ namespace UnityEngine.Rendering.Universal
         /// <seealso cref="ScriptableRenderPass"/>
         public UniversalCameraHistory historyManager { get => m_HistoryManager; set => m_HistoryManager = value; }
 
+        // A (non-owning) reference to the persistent color grading LUT of this camera.
+        // Null when the camera has no UniversalAdditionalCameraData, in which case the LUT is rebuilt every frame.
+        internal ColorGradingLutCache colorGradingLutCache;
+
         /// <summary>
         /// The camera render type used for camera stacking.
         /// <see cref="CameraRenderType"/>
@@ -699,6 +703,7 @@ namespace UnityEngine.Rendering.Universal
             backgroundColor = Color.black;
             taaHistory = null;
             stpHistory = null;
+            colorGradingLutCache = null;
             taaSettings = default;
             baseCamera = null;
             isLastBaseCamera = false;

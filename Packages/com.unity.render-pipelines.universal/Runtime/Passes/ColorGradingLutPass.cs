@@ -20,6 +20,11 @@ namespace UnityEngine.Rendering.Universal.Internal
 
         bool m_AllowColorGradingACESHDR = true;
 
+        // Compatibility Mode only: the LUT target is owned by the renderer and shared by every camera it
+        // renders, so the cached content is only reusable while the same camera keeps rendering into it.
+        Camera m_LastLutCamera;
+        RTHandle m_LastLutTarget;
+
         /// <summary>
         /// Creates a new <c>ColorGradingLutPass</c> instance.
         /// </summary>
@@ -119,6 +124,24 @@ namespace UnityEngine.Rendering.Universal.Internal
             ContextContainer frameData = renderingData.frameData;
             UniversalCameraData cameraData = frameData.Get<UniversalCameraData>();
             UniversalPostProcessingData postProcessingData = frameData.Get<UniversalPostProcessingData>();
+
+            ConfigureDescriptor(in postProcessingData, out var lutDesc, out _);
+
+            // The LUT is baked from the volume stack, so it only has to be rendered again when the stack (or the
+            // LUT format / HDR output settings) changed. See ColorGradingLutCache.
+            var lutCache = cameraData.colorGradingLutCache;
+            if (lutCache != null)
+            {
+                bool renderLut = lutCache.CheckDirty(ComputeLutStateHash(cameraData, ref lutDesc));
+                renderLut |= m_LastLutCamera != cameraData.camera || m_LastLutTarget != m_InternalLut;
+
+                if (!renderLut)
+                    return;
+
+                lutCache.ClearDirty();
+                m_LastLutCamera = cameraData.camera;
+                m_LastLutTarget = m_InternalLut;
+            }
 
             m_PassData.cameraData = cameraData;
             m_PassData.postProcessingData = postProcessingData;
@@ -280,11 +303,30 @@ namespace UnityEngine.Rendering.Universal.Internal
             UniversalCameraData cameraData = frameData.Get<UniversalCameraData>();
             UniversalPostProcessingData postProcessingData= frameData.Get<UniversalPostProcessingData>();
 
+            this.ConfigureDescriptor(in postProcessingData, out var lutDesc, out var filterMode);
+
+            // The LUT is baked from the volume stack, so it only has to be rendered again when the stack (or the
+            // LUT format / HDR output settings) changed. When the camera owns a persistent LUT we import it and
+            // skip recording the pass on the frames where its content is still valid. See ColorGradingLutCache.
+            var lutCache = cameraData.colorGradingLutCache;
+            if (lutCache != null)
+            {
+                bool renderLut = lutCache.UpdateTexture(in lutDesc, filterMode, ComputeLutStateHash(cameraData, ref lutDesc));
+                internalColorLut = renderGraph.ImportTexture(lutCache.lut);
+
+                if (!renderLut)
+                    return;
+
+                lutCache.ClearDirty();
+            }
+            else
+            {
+                // No UniversalAdditionalCameraData on this camera: fall back to a transient per frame LUT.
+                internalColorLut = UniversalRenderer.CreateRenderGraphTexture(renderGraph, lutDesc, "_InternalGradingLut", true, filterMode);
+            }
+
             using (var builder = renderGraph.AddRasterRenderPass<PassData>(passName, out var passData, profilingSampler))
             {
-                this.ConfigureDescriptor(in postProcessingData, out var lutDesc, out var filterMode);
-                internalColorLut = UniversalRenderer.CreateRenderGraphTexture(renderGraph, lutDesc, "_InternalGradingLut", true, filterMode);
-
                 passData.cameraData = cameraData;
                 passData.postProcessingData = postProcessingData;
 
@@ -306,6 +348,30 @@ namespace UnityEngine.Rendering.Universal.Internal
             }
         }
 
+        // Hashes everything the baked LUT depends on except the volume stack, which is tracked separately by
+        // ColorGradingLutCache. The descriptor covers the LUT size and format (grading mode, HDR format support).
+        Hash128 ComputeLutStateHash(UniversalCameraData cameraData, ref RenderTextureDescriptor lutDesc)
+        {
+            var hash = Hash128.Compute(ref lutDesc);
+
+            bool allowColorGradingACESHDR = m_AllowColorGradingACESHDR;
+            hash.Append(ref allowColorGradingACESHDR);
+
+            bool isHDROutputActive = cameraData.isHDROutputActive;
+            hash.Append(ref isHDROutputActive);
+
+            if (isHDROutputActive)
+            {
+                int hdrDisplayColorGamut = (int)cameraData.hdrDisplayColorGamut;
+                hash.Append(ref hdrDisplayColorGamut);
+
+                var hdrDisplayInformation = cameraData.hdrDisplayInformation;
+                hash.Append(ref hdrDisplayInformation);
+            }
+
+            return hash;
+        }
+
         /// <summary>
         /// Cleans up resources used by the pass.
         /// </summary>
@@ -313,6 +379,8 @@ namespace UnityEngine.Rendering.Universal.Internal
         {
             CoreUtils.Destroy(m_LutBuilderLdr);
             CoreUtils.Destroy(m_LutBuilderHdr);
+            m_LastLutCamera = null;
+            m_LastLutTarget = null;
         }
 
         // Precomputed shader ids to same some CPU cycles (mostly affects mobile)

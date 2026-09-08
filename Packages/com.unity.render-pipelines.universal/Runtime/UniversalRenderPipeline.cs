@@ -339,6 +339,7 @@ namespace UnityEngine.Rendering.Universal
                 if (c.TryGetComponent<UniversalAdditionalCameraData>(out var additionalCameraData))
                 {
                     additionalCameraData.historyManager.Dispose();
+                    additionalCameraData.colorGradingLutCache?.Dispose();
                 };
             }
         }
@@ -1222,6 +1223,10 @@ namespace UnityEngine.Rendering.Universal
 
             // When we want to update the volumes every frame...
 
+            // The color grading LUT is baked from the volume stack, so it has to be rebuilt every frame too.
+            if (additionalCameraData)
+                additionalCameraData.colorGradingLutCache?.SetDirty();
+
             // We destroy the volumeStack in the additional camera data, if present, to make sure
             // it gets recreated and initialized if the update mode gets later changed to ViaScripting...
             if (additionalCameraData && additionalCameraData.volumeStack != null)
@@ -1511,6 +1516,12 @@ namespace UnityEngine.Rendering.Universal
             }
 
             cameraData.renderer = renderer;
+
+            // Add a reference to the persistent color grading LUT of this camera so the LUT pass can render it
+            // on demand only. Note this has to be done here and not in CreateCameraData, which is called with the
+            // base camera data for the overlay cameras of a stack, while the LUT is baked per camera volume stack.
+            cameraData.colorGradingLutCache = additionalCameraData?.colorGradingLutCache;
+
             cameraData.postProcessingRequiresDepthTexture = CheckPostProcessForDepth(cameraData);
             cameraData.resolveFinalTarget = resolveFinalTarget;
             cameraData.isLastBaseCamera = isLastBaseCamera;
