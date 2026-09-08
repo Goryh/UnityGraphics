@@ -136,7 +136,7 @@ Shader "Hidden/Universal Render Pipeline/LutBuilderHdr"
 
             // HSV operations
             float satMult;
-            float3 hsv = RgbToHsv(colorLinear);
+            float3 hsv = RgbToHsv_Precise(colorLinear);
             {
                 // Hue Vs Sat
                 satMult = EvaluateCurve(_CurveHueVsSat, hsv.x) * 2.0;
@@ -153,7 +153,7 @@ Shader "Hidden/Universal Render Pipeline/LutBuilderHdr"
                 hue += offset;
                 hsv.x = RotateHue(hue, 0.0, 1.0);
             }
-            colorLinear = HsvToRgb(hsv);
+            colorLinear = HsvToRgb_Precise(hsv);
 
             // Global saturation
             luma = GetLuminance(colorLinear);
