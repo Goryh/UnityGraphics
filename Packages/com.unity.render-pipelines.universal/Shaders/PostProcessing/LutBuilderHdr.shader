@@ -8,6 +8,7 @@ Shader "Hidden/Universal Render Pipeline/LutBuilderHdr"
         #include "Packages/com.unity.render-pipelines.universal/Shaders/PostProcessing/Common.hlsl"
         #include "Packages/com.unity.render-pipelines.core/ShaderLibrary/ACES.hlsl"
         #include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Color.hlsl"
+        #include "Packages/com.unity.render-pipelines.universal/Shaders/PostProcessing/LutBuilderCommon.hlsl"
 #if defined(HDR_COLORSPACE_CONVERSION)
         #include "Packages/com.unity.render-pipelines.core/ShaderLibrary/HDROutput.hlsl"
 #endif
@@ -220,14 +221,10 @@ Shader "Hidden/Universal Render Pipeline/LutBuilderHdr"
             return colorLinear;
         }
 
-        float4 FragLutBuilderHdr(Varyings input) : SV_Target
+        // Full chain stored in one LUT entry: the run time interpolates between these values, so this is
+        // what has to be prefiltered, tonemapping included.
+        float3 BuildLutEntry(float3 colorLutSpace)
         {
-            // Lut space
-            // We use Alexa LogC (El 1000) to store the LUT as it provides a good enough range
-            // (~58.85666) and is good enough to be stored in fp16 without losing precision in the
-            // darks
-            float3 colorLutSpace = GetLutStripValue(input.texcoord, _Lut_Params);
-
             // Color grade & tonemap
             float3 gradedColor = ColorGrade(colorLutSpace);
 
@@ -236,6 +233,26 @@ Shader "Hidden/Universal Render Pipeline/LutBuilderHdr"
             #else
             gradedColor = Tonemap(gradedColor);
             #endif
+
+            return gradedColor;
+        }
+
+        float4 FragLutBuilderHdr(Varyings input) : SV_Target
+        {
+            // Lut space
+            // We use Alexa LogC (El 1000) to store the LUT as it provides a good enough range
+            // (~58.85666) and is good enough to be stored in fp16 without losing precision in the
+            // darks
+            float3 colorLutSpace = GetLutStripValue(input.texcoord, _Lut_Params);
+
+            // Average several evaluations spread around this entry instead of a single one, so the kinks
+            // of the grading chain get prefiltered rather than quantized. See LutBuilderCommon.hlsl.
+            float3 gradedColor = 0.0;
+
+            for (int i = 0; i < LUT_SUPER_SAMPLE_COUNT; i++)
+                gradedColor += BuildLutEntry(GetLutSuperSampleValue(colorLutSpace, _Lut_Params, i));
+
+            gradedColor /= LUT_SUPER_SAMPLE_COUNT;
 
             return float4(gradedColor, 1.0);
         }
