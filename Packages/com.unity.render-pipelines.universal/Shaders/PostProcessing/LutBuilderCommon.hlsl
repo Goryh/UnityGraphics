@@ -21,7 +21,7 @@
 // How far the super samples sit from the LUT entry, as a fraction of the distance between two entries.
 // 0.5 would reach the neighbouring entries: keep it below that, the trilinear interpolation already
 // filters across the whole cell and a wider prefilter only softens the grade.
-#define LUT_SUPER_SAMPLE_SPREAD 0.25
+#define LUT_SUPER_SAMPLE_SPREAD 0.5
 
 // Directions of the super samples: the four vertices of a regular tetrahedron. They sum to zero, so the
 // average stays unbiased and does not shift the LUT, and they spread evenly in the three dimensions
