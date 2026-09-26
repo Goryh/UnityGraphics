@@ -198,24 +198,26 @@ namespace UnityEngine.Rendering.Universal
                     ExecutePass(context.cmd, data, data.rendererList);
                 });
             }
-            // Render IMGUI overlay and software cursor in a UnsafePass
-            // Doing so allow us to safely cover cases when graphics commands called through onGUI() in user scripts are not supported by RenderPass API
-            // Besides, Vulkan backend doesn't support SetSRGWrite() in RenderPass API and we have some of them at IMGUI levels
-            // Note, these specific UI calls doesn't need depth buffer unlike UIToolkit/uGUI
-            using (var builder = renderGraph.AddUnsafePass<UnsafePassData>("Draw Screen Space IMGUI/SoftwareCursor - Offscreen", out var passData, profilingSampler))
-            {
-                passData.colorTarget = output;
-                builder.UseTexture(output, AccessFlags.Write);
-
-                passData.rendererList = renderGraph.CreateUIOverlayRendererList(cameraData.camera, UISubset.LowLevel);
-                builder.UseRendererList(passData.rendererList);
-
-                builder.SetRenderFunc((UnsafePassData data, UnsafeGraphContext context) =>
-                {
-                    context.cmd.SetRenderTarget(data.colorTarget);
-                    ExecutePass(context.cmd, data, data.rendererList);
-                });
-            }
+            // IMGUI overlay and software cursor pass disabled: not used, and as an unsafe pass it splits the UI into a separate
+            // encoder, forcing _OverlayUITexture to be stored and loaded back.
+            // // Render IMGUI overlay and software cursor in a UnsafePass
+            // // Doing so allow us to safely cover cases when graphics commands called through onGUI() in user scripts are not supported by RenderPass API
+            // // Besides, Vulkan backend doesn't support SetSRGWrite() in RenderPass API and we have some of them at IMGUI levels
+            // // Note, these specific UI calls doesn't need depth buffer unlike UIToolkit/uGUI
+            // using (var builder = renderGraph.AddUnsafePass<UnsafePassData>("Draw Screen Space IMGUI/SoftwareCursor - Offscreen", out var passData, profilingSampler))
+            // {
+            //     passData.colorTarget = output;
+            //     builder.UseTexture(output, AccessFlags.Write);
+            //
+            //     passData.rendererList = renderGraph.CreateUIOverlayRendererList(cameraData.camera, UISubset.LowLevel);
+            //     builder.UseRendererList(passData.rendererList);
+            //
+            //     builder.SetRenderFunc((UnsafePassData data, UnsafeGraphContext context) =>
+            //     {
+            //         context.cmd.SetRenderTarget(data.colorTarget);
+            //         ExecutePass(context.cmd, data, data.rendererList);
+            //     });
+            // }
         }
 
         internal void RenderOverlay(RenderGraph renderGraph, ContextContainer frameData, in TextureHandle colorBuffer, in TextureHandle depthBuffer)
@@ -241,24 +243,25 @@ namespace UnityEngine.Rendering.Universal
                     ExecutePass(context.cmd, data, data.rendererList);
                 });
             }
-            // Render IMGUI overlay and software cursor in a UnsafePass
-            // Doing so allow us to safely cover cases when graphics commands called through onGUI() in user scripts are not supported by RenderPass API
-            // Besides, Vulkan backend doesn't support SetSRGWrite() in RenderPass API and we have some of them at IMGUI levels
-            // Note, these specific UI calls doesn't need depth buffer unlike UIToolkit/uGUI
-            using (var builder = renderGraph.AddUnsafePass<UnsafePassData>("Draw IMGUI/SoftwareCursor Overlay", out var passData, profilingSampler))
-            {
-                passData.colorTarget = colorBuffer;
-                builder.UseTexture(colorBuffer, AccessFlags.Write);
-
-                passData.rendererList = renderGraph.CreateUIOverlayRendererList(cameraData.camera, UISubset.LowLevel);
-                builder.UseRendererList(passData.rendererList);
-
-                builder.SetRenderFunc((UnsafePassData data, UnsafeGraphContext context) =>
-                {
-                    context.cmd.SetRenderTarget(data.colorTarget);
-                    ExecutePass(context.cmd, data, data.rendererList);
-                });
-            }
+            // IMGUI overlay and software cursor pass disabled: not used, and as an unsafe pass it breaks the backbuffer native render pass.
+            // // Render IMGUI overlay and software cursor in a UnsafePass
+            // // Doing so allow us to safely cover cases when graphics commands called through onGUI() in user scripts are not supported by RenderPass API
+            // // Besides, Vulkan backend doesn't support SetSRGWrite() in RenderPass API and we have some of them at IMGUI levels
+            // // Note, these specific UI calls doesn't need depth buffer unlike UIToolkit/uGUI
+            // using (var builder = renderGraph.AddUnsafePass<UnsafePassData>("Draw IMGUI/SoftwareCursor Overlay", out var passData, profilingSampler))
+            // {
+            //     passData.colorTarget = colorBuffer;
+            //     builder.UseTexture(colorBuffer, AccessFlags.Write);
+            //
+            //     passData.rendererList = renderGraph.CreateUIOverlayRendererList(cameraData.camera, UISubset.LowLevel);
+            //     builder.UseRendererList(passData.rendererList);
+            //
+            //     builder.SetRenderFunc((UnsafePassData data, UnsafeGraphContext context) =>
+            //     {
+            //         context.cmd.SetRenderTarget(data.colorTarget);
+            //         ExecutePass(context.cmd, data, data.rendererList);
+            //     });
+            // }
         }
     }
 }
