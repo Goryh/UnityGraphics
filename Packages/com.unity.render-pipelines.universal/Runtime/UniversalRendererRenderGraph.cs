@@ -467,6 +467,18 @@ namespace UnityEngine.Rendering.Universal
             // force the clear if we are rendering to an offscreen depth texture
             clearBackbufferOnFirstUse |= isCameraTargetOffscreenDepth;
 
+            // When rendering through intermediate attachments, the final pass of the last camera in the stack overwrites the whole
+            // backbuffer if the camera covers the full screen. Loading the previous contents is then wasted bandwidth (a full
+            // tile load on TBDR GPUs), so clear instead. The camera rect check keeps the load for cameras that only cover part
+            // of the screen (e.g. a minimap base camera rendering over another one).
+            bool clearBackbufferColorOnFirstUse = clearBackbufferOnFirstUse;
+            if (m_RequiresIntermediateAttachments && isBuiltInTexture && lastCameraInTheStack)
+            {
+                Rect pixelRect = cameraData.pixelRect;
+                clearBackbufferColorOnFirstUse |= pixelRect.x == 0 && pixelRect.y == 0 &&
+                                                  (int)pixelRect.width == Screen.width && (int)pixelRect.height == Screen.height;
+            }
+
             // UI Overlay is rendered by native engine if not done within SRP
             // To check if the engine does it natively post-URP, we look at SupportedRenderingFeatures
             // and restrict it to cases where we resolve to screen and render UI overlay, i.e mostly final camera for game view
@@ -478,7 +490,7 @@ namespace UnityEngine.Rendering.Universal
             bool noStoreOnlyResolveBBColor = !m_RequiresIntermediateAttachments && !isNativeRenderingAfterURP && (cameraData.cameraTargetDescriptor.msaaSamples > 1);
 
             ImportResourceParams importBackbufferColorParams = new ImportResourceParams();
-            importBackbufferColorParams.clearOnFirstUse = clearBackbufferOnFirstUse;
+            importBackbufferColorParams.clearOnFirstUse = clearBackbufferColorOnFirstUse;
             importBackbufferColorParams.clearColor = cameraBackgroundColor;
             importBackbufferColorParams.discardOnLastUse = noStoreOnlyResolveBBColor;
 
