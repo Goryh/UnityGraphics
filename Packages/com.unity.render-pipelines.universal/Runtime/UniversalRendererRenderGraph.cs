@@ -1786,6 +1786,12 @@ namespace UnityEngine.Rendering.Universal
                 TextureHandle depthBuffer = resourceData.backBufferDepth;
                 TextureHandle target = resourceData.backBufferColor;
 
+                // On-tile Uber post: a native render pass has a single depth attachment. Draw the UI with the camera depth, which is
+                // not used after the Uber pass anymore, so the UI stays in the native render pass shared with the scene and the backbuffer.
+                // The UI resets depth and stencil itself before drawing, and its masks need the stencil.
+                if (m_UseOnTileUberPost && GraphicsFormatUtility.IsStencilFormat(cameraDepthAttachmentFormat))
+                    depthBuffer = resourceData.cameraDepth;
+
                 if (resolveToDebugScreen)
                 {
                     debugHandlerColorTarget = target;
