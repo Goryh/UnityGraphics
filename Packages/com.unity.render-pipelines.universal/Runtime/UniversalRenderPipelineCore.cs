@@ -1269,6 +1269,9 @@ namespace UnityEngine.Rendering.Universal
         /// <summary> Keyword used for Chromatic Aberration. </summary>
         public const string ChromaticAberration = "_CHROMATIC_ABERRATION";
 
+        /// <summary> Keyword used by the Uber post shader to read the camera color through framebuffer fetch (on-tile Uber post). </summary>
+        public const string UberFramebufferFetch = "_UBER_FRAMEBUFFER_FETCH";
+
         /// <summary> Keyword used for HDR Color Grading. </summary>
         public const string HDRGrading = "_HDR_GRADING";
 

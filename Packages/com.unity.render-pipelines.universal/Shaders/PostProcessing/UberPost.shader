@@ -14,6 +14,7 @@ Shader "Hidden/Universal Render Pipeline/UberPost"
         #pragma shader_feature_fragment _ DEBUG_DISPLAY
         #pragma shader_feature_fragment _ SCREEN_COORD_OVERRIDE
         #pragma multi_compile_local_fragment _ HDR_INPUT HDR_ENCODING
+        #pragma multi_compile_local_fragment _ _UBER_FRAMEBUFFER_FETCH
 
         #pragma dynamic_branch_local_fragment _ _HDR_OVERLAY
 
@@ -50,6 +51,10 @@ Shader "Hidden/Universal Render Pipeline/UberPost"
         TEXTURE2D(_UserLut);
         TEXTURE2D(_BlueNoise_Texture);
         TEXTURE2D_X(_OverlayUITexture);
+
+        #if _UBER_FRAMEBUFFER_FETCH
+        FRAMEBUFFER_INPUT_X_HALF(0);
+        #endif
 
         float4 _BloomTexture_TexelSize;
         float4 _Lut_Params;
@@ -154,7 +159,12 @@ Shader "Hidden/Universal Render Pipeline/UberPost"
 
             // NOTE: Hlsl specifies missing input.a to fill 1 (0 for .rgb).
             // InputColor is a "bottom" layer for alpha output.
+            #if _UBER_FRAMEBUFFER_FETCH
+            // The source is read at the current pixel only (no distortion / chromatic aberration in this variant).
+            half4 inputColor = LOAD_FRAMEBUFFER_X_INPUT(0, input.positionCS.xy);
+            #else
             half4 inputColor = SAMPLE_TEXTURE2D_X(_BlitTexture, sampler_LinearClamp, ClampUVForBilinear(SCREEN_COORD_REMOVE_SCALEBIAS(uvDistorted), _BlitTexture_TexelSize.xy));
+            #endif
             half3 color = inputColor.rgb;
 
             #if _CHROMATIC_ABERRATION

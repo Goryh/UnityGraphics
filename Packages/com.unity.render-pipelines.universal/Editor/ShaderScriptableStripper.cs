@@ -174,6 +174,7 @@ namespace UnityEditor.Rendering.Universal
         LocalKeyword m_HdrGrading;
         LocalKeyword m_ToneMapACES;
         LocalKeyword m_ToneMapNeutral;
+        LocalKeyword m_UberFramebufferFetch;
         LocalKeyword m_FilmGrain;
         LocalKeyword m_ScreenCoordOverride;
         LocalKeyword m_ProbeVolumesL1;
@@ -239,6 +240,7 @@ namespace UnityEditor.Rendering.Universal
             // Post processing
             m_LensDistortion = TryGetLocalKeyword(shader, ShaderKeywordStrings.Distortion);
             m_ChromaticAberration = TryGetLocalKeyword(shader, ShaderKeywordStrings.ChromaticAberration);
+            m_UberFramebufferFetch = TryGetLocalKeyword(shader, ShaderKeywordStrings.UberFramebufferFetch);
             m_BloomLQ = TryGetLocalKeyword(shader, ShaderKeywordStrings.BloomLQ);
             m_BloomHQ = TryGetLocalKeyword(shader, ShaderKeywordStrings.BloomHQ);
             m_BloomLQDirt = TryGetLocalKeyword(shader, ShaderKeywordStrings.BloomLQDirt);
@@ -732,9 +734,21 @@ namespace UnityEditor.Rendering.Universal
         }
 
 
+        internal bool StripUnusedFeatures_UberFramebufferFetch(ref IShaderScriptableStrippingData strippingData)
+        {
+            // The on-tile Uber post path is only used on Metal and Vulkan (see UniversalRenderer.CanRenderOnTileUberPost).
+            return strippingData.shader == m_UberPostShader
+                && strippingData.shaderCompilerPlatform != ShaderCompilerPlatform.Metal
+                && strippingData.shaderCompilerPlatform != ShaderCompilerPlatform.Vulkan
+                && strippingData.IsKeywordEnabled(m_UberFramebufferFetch);
+        }
+
         internal bool StripUnusedFeatures(ref IShaderScriptableStrippingData strippingData)
         {
             if (StripUnusedFeatures_DebugDisplay(ref strippingData))
+                return true;
+
+            if (StripUnusedFeatures_UberFramebufferFetch(ref strippingData))
                 return true;
 
             if (StripUnusedFeatures_ScreenCoordOverride(ref strippingData))

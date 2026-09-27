@@ -287,6 +287,11 @@ namespace UnityEngine.Rendering.Universal
         // True if GPU occlusion culling should be used when rendering this camera.
         internal bool useGPUOcclusionCulling;
 
+        // On-tile Uber post: the camera color and depth attachments are rendered in backbuffer orientation (not y-flipped).
+        internal bool cameraTargetsInBackbufferOrientation;
+        internal RenderTargetIdentifier backbufferOrientedColorTarget;
+        internal RenderTargetIdentifier backbufferOrientedDepthTarget;
+
         internal bool requireSrgbConversion
         {
             get
@@ -418,6 +423,9 @@ namespace UnityEngine.Rendering.Universal
 
             var handleID = new RenderTargetIdentifier(handle.nameID, 0, CubemapFace.Unknown, 0);
             bool isBackbuffer = handleID == BuiltinRenderTextureType.CameraTarget || handleID == BuiltinRenderTextureType.Depth;
+            // On-tile Uber post: the camera attachments share a native render pass with the backbuffer and get its orientation.
+            if (cameraTargetsInBackbufferOrientation)
+                isBackbuffer |= handleID == backbufferOrientedColorTarget || handleID == backbufferOrientedDepthTarget;
 #if ENABLE_VR && ENABLE_XR_MODULE
             if (xr.enabled)
                 isBackbuffer |= handleID == new RenderTargetIdentifier(xr.renderTarget, 0, CubemapFace.Unknown, 0);
@@ -686,6 +694,9 @@ namespace UnityEngine.Rendering.Universal
             postProcessingRequiresDepthTexture = false;
             xrRendering = false;
             useGPUOcclusionCulling = false;
+            cameraTargetsInBackbufferOrientation = false;
+            backbufferOrientedColorTarget = default;
+            backbufferOrientedDepthTarget = default;
             defaultOpaqueSortFlags = SortingCriteria.None;
             xr = default;
             maxShadowDistance = 0.0f;

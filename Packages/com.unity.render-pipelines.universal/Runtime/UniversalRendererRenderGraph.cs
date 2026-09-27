@@ -328,6 +328,105 @@ namespace UnityEngine.Rendering.Universal
             return (requireColorTexture || requireDepthTexture);
         }
 
+        /// <summary>
+        /// Allows the on-tile Uber post path, see <see cref="CanRenderOnTileUberPost"/>. The regular path renders the same image.
+        /// </summary>
+        public static bool onTileUberPostEnabled = true;
+
+        /// <summary>
+        /// Allows the on-tile Uber post path on Vulkan. Unlike Metal, it hasn't been verified on devices yet (swapchain pre-rotation in particular).
+        /// </summary>
+        public static bool onTileUberPostVulkanEnabled = true;
+
+        // True when the scene passes and the Uber post pass are recorded so they merge into a single native render pass
+        // together with the backbuffer. The camera color is then read by Uber through framebuffer fetch and never stored.
+        // Because that native render pass contains the backbuffer, the engine renders it in backbuffer orientation (not y-flipped),
+        // so for this frame the camera color and depth attachments are treated like the backbuffer.
+        bool m_UseOnTileUberPost;
+
+        /// <summary>
+        /// Checks that everything recorded between the first write of the camera color and the Uber post pass merges into one
+        /// native render pass with the backbuffer. If anything could break that native render pass, the scene would be rendered
+        /// y-flipped into a texture while Uber reads it as unflipped, so we must fall back to the regular path instead.
+        /// </summary>
+        bool CanRenderOnTileUberPost(ScriptableRenderContext context, UniversalCameraData cameraData, UniversalPostProcessingData postProcessingData,
+            ref RenderPassInputSummary renderPassInputs, bool isFullScreenBackbufferCamera, bool isCameraTargetOffscreenDepth)
+        {
+            if (!onTileUberPostEnabled)
+                return false;
+
+            // The editor Game view backbuffer is a render texture. The engine renders a native render pass containing the backbuffer
+            // in backbuffer orientation: verified on Metal, expected on Vulkan.
+            if (Application.isEditor)
+                return false;
+            var deviceType = SystemInfo.graphicsDeviceType;
+            if (deviceType != GraphicsDeviceType.Metal && !(deviceType == GraphicsDeviceType.Vulkan && onTileUberPostVulkanEnabled))
+                return false;
+
+            if (!useRenderPassEnabled)
+                return false;
+
+            // A single full screen game camera rendering to the backbuffer through the intermediate attachments.
+            if (!m_RequiresIntermediateAttachments || isCameraTargetOffscreenDepth || !isFullScreenBackbufferCamera)
+                return false;
+            if (cameraData.cameraType != CameraType.Game || cameraData.renderType != CameraRenderType.Base || !cameraData.resolveFinalTarget)
+                return false;
+            if (cameraData.xr.enabled || cameraData.captureActions != null)
+                return false;
+            if (DebugHandler != null && DebugHandler.IsActiveForCamera(cameraData.isPreviewCamera))
+                return false;
+
+            // The attachments of a native render pass must have the same size and sample count.
+            var desc = cameraData.cameraTargetDescriptor;
+            if (desc.msaaSamples != 1 || desc.width != Screen.width || desc.height != Screen.height)
+                return false;
+            if (cameraData.camera.allowDynamicResolution && (ScalableBufferManager.widthScaleFactor != 1.0f || ScalableBufferManager.heightScaleFactor != 1.0f))
+                return false;
+
+            // Forward only, with nothing reading the camera color or depth as a texture in the middle of the frame.
+            if (renderingModeActual == RenderingMode.Deferred || useDepthPriming || m_RequiresRenderingLayer || cameraData.useGPUOcclusionCulling)
+                return false;
+            if (renderPassInputs.requiresMotionVectors)
+                return false;
+
+            bool isDeferred = false;
+            bool requiresDepthPrepass = RequireDepthPrepass(cameraData, ref renderPassInputs);
+            bool hasFullPrepass = requiresDepthPrepass && (!renderPassInputs.requiresNormalsTexture || !AllowPartialDepthNormalsPrepass(isDeferred, renderPassInputs.requiresDepthNormalAtEvent));
+            TextureCopySchedules copySchedules = CalculateTextureCopySchedules(cameraData, renderPassInputs, isDeferred, requiresDepthPrepass, hasFullPrepass);
+            if (copySchedules.color != ColorCopySchedule.None)
+                return false;
+            // A depth texture rendered by the prepass is a separate texture before the scene, a copy of the depth attachment is not.
+            if (copySchedules.depth != DepthCopySchedule.None && copySchedules.depth != DepthCopySchedule.DuringPrepass)
+                return false;
+
+            var history = cameraData.historyManager;
+            if (history != null && (history.IsAccessRequested<RawColorHistory>() || history.IsAccessRequested<RawDepthHistory>()))
+                return false;
+
+            // OnRenderObject callbacks are recorded as an unsafe pass after the transparents.
+            if (context.HasInvokeOnRenderObjectCallbacks())
+                return false;
+
+            // Renderer feature passes may read the camera color or depth as textures, or use unsafe/compute passes, so
+            // they have to declare that they only render into the active color and depth.
+            foreach (var pass in activeRenderPassQueue)
+            {
+                if (!(pass is IOnTileCompatibleRenderPass))
+                    return false;
+            }
+
+            // Post processing must be done by the Uber pass alone, which writes the backbuffer directly.
+            if (!postProcessingData.isEnabled || !ShouldApplyPostProcessing(cameraData.postProcessEnabled))
+                return false;
+            bool applyFinalPostProcessing = (cameraData.antialiasing == AntialiasingMode.FastApproximateAntialiasing) ||
+                                            ((cameraData.imageScalingMode == ImageScalingMode.Upscaling) && (cameraData.upscalingFilter != ImageUpscalingFilter.Linear)) ||
+                                            (cameraData.IsTemporalAAEnabled() && cameraData.taaSettings.contrastAdaptiveSharpening > 0.0f);
+            if (applyFinalPostProcessing)
+                return false;
+
+            return m_PostProcessPasses.postProcessPass.CanRenderUberPostOnly(cameraData, postProcessingData);
+        }
+
         // Gather history render requests and manage camera history texture life-time.
         private void UpdateCameraHistory(UniversalCameraData cameraData)
         {
@@ -371,7 +470,7 @@ namespace UnityEngine.Rendering.Universal
         const string _CameraColorUpscaled = "_CameraColorUpscaled";
         const string _CameraColorAfterPostProcessingName = "_CameraColorAfterPostProcessing";
 
-        void CreateRenderGraphCameraRenderTargets(RenderGraph renderGraph, bool isCameraTargetOffscreenDepth)
+        void CreateRenderGraphCameraRenderTargets(RenderGraph renderGraph, ScriptableRenderContext context, bool isCameraTargetOffscreenDepth)
         {
             UniversalResourceData resourceData = frameData.Get<UniversalResourceData>();
             UniversalCameraData cameraData = frameData.Get<UniversalCameraData>();
@@ -456,6 +555,17 @@ namespace UnityEngine.Rendering.Universal
             if (cameraData.renderType == CameraRenderType.Base)
                 m_RequiresIntermediateAttachments = RequiresIntermediateAttachments(cameraData, ref renderPassInputs);
 
+            // The last camera in the stack covers the whole backbuffer, so its final pass overwrites all of it.
+            bool isFullScreenBackbufferCamera = false;
+            if (isBuiltInTexture && lastCameraInTheStack)
+            {
+                Rect pixelRect = cameraData.pixelRect;
+                isFullScreenBackbufferCamera = pixelRect.x == 0 && pixelRect.y == 0 &&
+                                               (int)pixelRect.width == Screen.width && (int)pixelRect.height == Screen.height;
+            }
+
+            m_UseOnTileUberPost = CanRenderOnTileUberPost(context, cameraData, postProcessingData, ref renderPassInputs, isFullScreenBackbufferCamera, isCameraTargetOffscreenDepth);
+
             // The final output back buffer should be cleared by the graph on first use only if we have no final blit pass.
             // If there is a final blit, that blit will write the buffers so on first sight an extra clear should not be problem,
             // blit will simply blit over the cleared values. BUT! the final blit may not write the whole buffer in case of a camera
@@ -471,13 +581,7 @@ namespace UnityEngine.Rendering.Universal
             // backbuffer if the camera covers the full screen. Loading the previous contents is then wasted bandwidth (a full
             // tile load on TBDR GPUs), so clear instead. The camera rect check keeps the load for cameras that only cover part
             // of the screen (e.g. a minimap base camera rendering over another one).
-            bool clearBackbufferColorOnFirstUse = clearBackbufferOnFirstUse;
-            if (m_RequiresIntermediateAttachments && isBuiltInTexture && lastCameraInTheStack)
-            {
-                Rect pixelRect = cameraData.pixelRect;
-                clearBackbufferColorOnFirstUse |= pixelRect.x == 0 && pixelRect.y == 0 &&
-                                                  (int)pixelRect.width == Screen.width && (int)pixelRect.height == Screen.height;
-            }
+            bool clearBackbufferColorOnFirstUse = clearBackbufferOnFirstUse || (m_RequiresIntermediateAttachments && isFullScreenBackbufferCamera);
 
             // UI Overlay is rendered by native engine if not done within SRP
             // To check if the engine does it natively post-URP, we look at SupportedRenderingFeatures
@@ -600,7 +704,20 @@ namespace UnityEngine.Rendering.Universal
                 // When there's a single camera setup, there's no need to do the double buffer technique with attachment A/B, in order to save memory allocation
                 // and simplify the workflow by using a RenderGraph texture directly.
                 var isSingleCamera = cameraData.resolveFinalTarget && cameraData.renderType == CameraRenderType.Base;
-                if (isSingleCamera)
+                if (m_UseOnTileUberPost)
+                {
+                    // Imported so the attachment can be identified as being in backbuffer orientation (see UniversalCameraData.IsHandleYFlipped).
+                    // It is only used inside the native render pass it shares with the backbuffer, so it is never stored.
+                    RenderingUtils.ReAllocateHandleIfNeeded(ref m_RenderGraphCameraColorHandles[0], cameraTargetDescriptor, FilterMode.Bilinear, TextureWrapMode.Clamp, name: _CameraTargetAttachmentAName);
+                    m_CurrentColorHandle = 0;
+
+                    ImportResourceParams importColorParams = new ImportResourceParams();
+                    importColorParams.clearOnFirstUse = clearColor;
+                    importColorParams.clearColor = cameraBackgroundColor;
+                    importColorParams.discardOnLastUse = true;
+                    resourceData.cameraColor = renderGraph.ImportTexture(m_RenderGraphCameraColorHandles[0], importColorParams);
+                }
+                else if (isSingleCamera)
                 {
                     resourceData.cameraColor = CreateRenderGraphTexture(renderGraph, cameraTargetDescriptor, _SingleCameraTargetAttachmentName, clearColor, cameraBackgroundColor, 1, FilterMode.Bilinear, discardOnLastUse: cameraData.resolveFinalTarget);
 
@@ -683,6 +800,13 @@ namespace UnityEngine.Rendering.Universal
             else
             {
                 resourceData.activeDepthID = UniversalResourceData.ActiveID.BackBuffer;
+            }
+
+            cameraData.cameraTargetsInBackbufferOrientation = m_UseOnTileUberPost;
+            if (m_UseOnTileUberPost)
+            {
+                cameraData.backbufferOrientedColorTarget = new RenderTargetIdentifier(m_RenderGraphCameraColorHandles[0].nameID, 0, CubemapFace.Unknown, 0);
+                cameraData.backbufferOrientedDepthTarget = new RenderTargetIdentifier(m_RenderGraphCameraDepthHandle.nameID, 0, CubemapFace.Unknown, 0);
             }
             #endregion
 
@@ -813,14 +937,14 @@ namespace UnityEngine.Rendering.Universal
 
             bool isCameraTargetOffscreenDepth = cameraData.camera.targetTexture != null && cameraData.camera.targetTexture.format == RenderTextureFormat.Depth;
 
-            CreateRenderGraphCameraRenderTargets(renderGraph, isCameraTargetOffscreenDepth);
+            CreateRenderGraphCameraRenderTargets(renderGraph, context, isCameraTargetOffscreenDepth);
 
             if (DebugHandler != null)
                 DebugHandler.Setup(renderGraph, cameraData.isPreviewCamera);
 
             RecordCustomRenderGraphPasses(renderGraph, RenderPassEvent.BeforeRendering);
 
-            SetupRenderGraphCameraProperties(renderGraph, resourceData.isActiveTargetBackBuffer);
+            SetupRenderGraphCameraProperties(renderGraph, resourceData.isActiveTargetBackBuffer || m_UseOnTileUberPost);
 
 #if VISUAL_EFFECT_GRAPH_0_0_1_OR_NEWER
             ProcessVFXCameraCommand(renderGraph);
@@ -934,7 +1058,7 @@ namespace UnityEngine.Rendering.Universal
             // The camera need to be setup again after the shadows since those passes override some settings
             // TODO RENDERGRAPH: move the setup code into the shadow passes
             if (renderShadows)
-                SetupRenderGraphCameraProperties(renderGraph, resourceData.isActiveTargetBackBuffer);
+                SetupRenderGraphCameraProperties(renderGraph, resourceData.isActiveTargetBackBuffer || m_UseOnTileUberPost);
 
             RecordCustomRenderGraphPasses(renderGraph, RenderPassEvent.AfterRenderingShadows);
 
@@ -1171,6 +1295,18 @@ namespace UnityEngine.Rendering.Universal
             UniversalCameraData cameraData = frameData.Get<UniversalCameraData>();
             UniversalLightData lightData = frameData.Get<UniversalLightData>();
             UniversalPostProcessingData postProcessingData = frameData.Get<UniversalPostProcessingData>();
+
+            // The offscreen UI doesn't depend on the scene. Render it first so it doesn't split the scene passes
+            // and the post processing passes into separate native render passes (required by the on-tile Uber post).
+            if (cameraData.rendersOverlayUI && cameraData.isHDROutputActive)
+            {
+                TextureHandle overlayUI;
+                m_DrawOffscreenUIPass.RenderOffscreen(renderGraph, frameData, cameraDepthAttachmentFormat, out overlayUI);
+                resourceData.overlayUITexture = overlayUI;
+
+                // UI rendering may leave its own view/projection state behind, restore the camera setup for the scene.
+                SetupRenderGraphCameraProperties(renderGraph, resourceData.isActiveTargetBackBuffer || m_UseOnTileUberPost);
+            }
 
             if (!renderGraph.nativeRenderPassesEnabled)
             {
@@ -1441,15 +1577,6 @@ namespace UnityEngine.Rendering.Universal
 #endif
 
             RenderRawColorDepthHistory(renderGraph, cameraData, resourceData);
-
-            bool shouldRenderUI = cameraData.rendersOverlayUI;
-            bool outputToHDR = cameraData.isHDROutputActive;
-            if (shouldRenderUI && outputToHDR)
-            {
-                TextureHandle overlayUI;
-                m_DrawOffscreenUIPass.RenderOffscreen(renderGraph, frameData, cameraDepthAttachmentFormat, out overlayUI);
-                resourceData.overlayUITexture = overlayUI;
-            }
         }
 
         private void OnAfterRendering(RenderGraph renderGraph)
@@ -1576,7 +1703,8 @@ namespace UnityEngine.Rendering.Universal
                 }
 
                 bool doSRGBEncoding = resolvePostProcessingToCameraTarget && needsColorEncoding;
-                m_PostProcessPasses.postProcessPass.RenderPostProcessingRenderGraph(renderGraph, frameData, in activeColor, in internalColorLut, in overlayUITexture, in target, applyFinalPostProcessing, resolveToDebugScreen, doSRGBEncoding);
+                Debug.Assert(!m_UseOnTileUberPost || (isTargetBackbuffer && !resolveToDebugScreen), "On-tile Uber post requires Uber to write the backbuffer directly.");
+                m_PostProcessPasses.postProcessPass.RenderPostProcessingRenderGraph(renderGraph, frameData, in activeColor, in internalColorLut, in overlayUITexture, in target, applyFinalPostProcessing, resolveToDebugScreen, doSRGBEncoding, m_UseOnTileUberPost);
 
                 // Handle any after-post rendering debugger overlays
                 if (cameraData.resolveFinalTarget)

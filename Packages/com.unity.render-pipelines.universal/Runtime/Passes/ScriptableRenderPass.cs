@@ -191,6 +191,19 @@ namespace UnityEngine.Rendering.Universal
     }
 
     /// <summary>
+    /// Marks a <c>ScriptableRenderPass</c> as compatible with the on-tile Uber post path of the Universal Renderer
+    /// (see <c>UniversalRenderer.onTileUberPostEnabled</c>). Any enqueued pass without this marker makes the frame use the regular path.
+    /// A compatible pass only records raster passes that render into <c>activeColorTexture</c> / <c>activeDepthTexture</c>
+    /// as attachments, at the camera resolution without MSAA. It must not read them as textures (<c>UseTexture</c>, copies,
+    /// blits), must not replace them in the resource data, and must not record unsafe or compute passes.
+    /// Its draws must also use the camera y-flip state of the target (for example <c>IsRenderTargetProjectionMatrixFlipped</c>)
+    /// rather than assume render textures are flipped, as the camera attachments are in backbuffer orientation on that path.
+    /// </summary>
+    public interface IOnTileCompatibleRenderPass
+    {
+    }
+
+    /// <summary>
     /// <c>ScriptableRenderPass</c> implements a logical rendering pass that can be used to extend Universal RP renderer.
     /// </summary>
     public abstract partial class ScriptableRenderPass: IRenderGraphRecorder

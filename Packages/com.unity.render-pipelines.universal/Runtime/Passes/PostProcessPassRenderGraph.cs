@@ -1378,9 +1378,17 @@ namespace UnityEngine.Rendering.Universal
 
 #endregion
 
-        static private void ScaleViewportAndBlit(RasterCommandBuffer cmd, RTHandle sourceTextureHdl, RTHandle dest, UniversalCameraData cameraData, Material material, bool hasFinalPass)
+        static private void ScaleViewportAndBlit(RasterCommandBuffer cmd, RTHandle sourceTextureHdl, RTHandle dest, UniversalCameraData cameraData, Material material, bool hasFinalPass, bool sourceIsInputAttachment = false)
         {
-            Vector4 scaleBias = RenderingUtils.GetFinalBlitScaleBias(sourceTextureHdl, dest, cameraData);
+            Vector4 scaleBias;
+            if (sourceIsInputAttachment)
+            {
+                // An input attachment has no RTHandle to query. Same result as GetFinalBlitScaleBias for an unscaled source.
+                bool yflip = cameraData.IsRenderTargetProjectionMatrixFlipped(dest);
+                scaleBias = !yflip ? new Vector4(1, -1, 0, 1) : new Vector4(1, 1, 0, 0);
+            }
+            else
+                scaleBias = RenderingUtils.GetFinalBlitScaleBias(sourceTextureHdl, dest, cameraData);
             RenderTargetIdentifier cameraTarget = BuiltinRenderTextureType.CameraTarget;
         #if ENABLE_VR && ENABLE_XR_MODULE
             if (cameraData.xr.enabled)
@@ -1412,7 +1420,10 @@ namespace UnityEngine.Rendering.Universal
             }
 
 
-            Blitter.BlitTexture(cmd, sourceTextureHdl, scaleBias, material, 0);
+            if (sourceIsInputAttachment)
+                Blitter.BlitTexture(cmd, scaleBias, material, 0);
+            else
+                Blitter.BlitTexture(cmd, sourceTextureHdl, scaleBias, material, 0);
         }
 
 #region FinalPass
@@ -1838,6 +1849,46 @@ namespace UnityEngine.Rendering.Universal
             internal bool isBackbuffer;
             internal bool enableAlphaOutput;
             internal bool hasFinalPass;
+            internal bool useFramebufferFetch;
+        }
+
+        // On-tile Uber post: the camera color is read through framebuffer fetch (set by the renderer for the current camera).
+        bool m_UseOnTileUberPost;
+
+        /// <summary>
+        /// True if post processing for this camera is done by the Uber pass alone, reading only the current pixel of the camera color.
+        /// Must match the effect selection in RenderPostProcessingRenderGraph.
+        /// </summary>
+        internal bool CanRenderUberPostOnly(UniversalCameraData cameraData, UniversalPostProcessingData postProcessingData)
+        {
+            var stack = VolumeManager.instance.stack;
+            bool isSceneViewCamera = cameraData.isSceneViewCamera;
+
+            if (cameraData.isStopNaNEnabled && m_Materials.stopNaN != null)
+                return false;
+            if (cameraData.antialiasing == AntialiasingMode.SubpixelMorphologicalAntiAliasing || cameraData.IsTemporalAAEnabled())
+                return false;
+
+            if (stack.GetComponent<DepthOfField>().IsActive() && !isSceneViewCamera)
+                return false;
+            if (stack.GetComponent<MotionBlur>().IsActive() && !isSceneViewCamera && Application.isPlaying)
+                return false;
+            if (stack.GetComponent<PaniniProjection>().IsActive() && !isSceneViewCamera)
+                return false;
+            if (stack.GetComponent<Bloom>().IsActive())
+                return false;
+            if (stack.GetComponent<ScreenSpaceLensFlare>().IsActive() && postProcessingData.supportScreenSpaceLensFlare)
+                return false;
+            if (!LensFlareCommonSRP.Instance.IsEmpty() && postProcessingData.supportDataDrivenLensFlare)
+                return false;
+
+            // These sample the source away from the current pixel.
+            if (stack.GetComponent<LensDistortion>().IsActive() && !isSceneViewCamera)
+                return false;
+            if (stack.GetComponent<ChromaticAberration>().IsActive())
+                return false;
+
+            return true;
         }
 
         TextureHandle TryGetCachedUserLutTextureHandle(RenderGraph renderGraph)
@@ -1898,7 +1949,11 @@ namespace UnityEngine.Rendering.Universal
                 passData.destinationTexture = destTexture;
                 builder.SetRenderAttachment(destTexture, 0, AccessFlags.Write);
                 passData.sourceTexture = sourceTexture;
-                builder.UseTexture(sourceTexture, AccessFlags.Read);
+                passData.useFramebufferFetch = m_UseOnTileUberPost;
+                if (passData.useFramebufferFetch)
+                    builder.SetInputAttachment(sourceTexture, 0, AccessFlags.Read);
+                else
+                    builder.UseTexture(sourceTexture, AccessFlags.Read);
                 passData.lutTexture = lutTexture;
                 builder.UseTexture(lutTexture, AccessFlags.Read);
                 passData.lutParams = lutParams;
@@ -1924,7 +1979,8 @@ namespace UnityEngine.Rendering.Universal
                     var cmd = context.cmd;
                     var camera = data.cameraData.camera;
                     var material = data.material;
-                    RTHandle sourceTextureHdl = data.sourceTexture;
+                    // The source bound as an input attachment doesn't resolve to an RTHandle here.
+                    RTHandle sourceTextureHdl = data.useFramebufferFetch ? null : data.sourceTexture;
 
                     material.SetTexture(ShaderConstants._InternalLut, data.lutTexture);
                     material.SetVector(ShaderConstants._Lut_Params, data.lutParams);
@@ -1946,9 +2002,10 @@ namespace UnityEngine.Rendering.Universal
                     }
 
                     CoreUtils.SetKeyword(material, ShaderKeywordStrings._ENABLE_ALPHA_OUTPUT, data.enableAlphaOutput);
+                    CoreUtils.SetKeyword(material, ShaderKeywordStrings.UberFramebufferFetch, data.useFramebufferFetch);
 
                     // Done with Uber, blit it
-                    ScaleViewportAndBlit(cmd, sourceTextureHdl, data.destinationTexture, data.cameraData, material, data.hasFinalPass);
+                    ScaleViewportAndBlit(cmd, sourceTextureHdl, data.destinationTexture, data.cameraData, material, data.hasFinalPass, data.useFramebufferFetch);
                 });
 
                 return;
@@ -1958,8 +2015,10 @@ namespace UnityEngine.Rendering.Universal
 
         private class PostFXSetupPassData { }
 
-        public void RenderPostProcessingRenderGraph(RenderGraph renderGraph, ContextContainer frameData, in TextureHandle activeCameraColorTexture, in TextureHandle lutTexture, in TextureHandle overlayUITexture, in TextureHandle postProcessingTarget, bool hasFinalPass, bool resolveToDebugScreen, bool enableColorEndingIfNeeded)
+        public void RenderPostProcessingRenderGraph(RenderGraph renderGraph, ContextContainer frameData, in TextureHandle activeCameraColorTexture, in TextureHandle lutTexture, in TextureHandle overlayUITexture, in TextureHandle postProcessingTarget, bool hasFinalPass, bool resolveToDebugScreen, bool enableColorEndingIfNeeded, bool useOnTileUberPost = false)
         {
+            m_UseOnTileUberPost = useOnTileUberPost;
+
             UniversalResourceData resourceData = frameData.Get<UniversalResourceData>();
             UniversalRenderingData renderingData = frameData.Get<UniversalRenderingData>();
             UniversalCameraData cameraData = frameData.Get<UniversalCameraData>();
