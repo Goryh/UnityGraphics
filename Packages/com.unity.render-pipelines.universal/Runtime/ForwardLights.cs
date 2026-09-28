@@ -27,7 +27,6 @@ namespace UnityEngine.Rendering.Universal.Internal
             public static int _AdditionalLightsCount;
             public static int _AdditionalLightsPosition;
             public static int _AdditionalLightsColor;
-            public static int _AdditionalLightsExtraData1;
             public static int _AdditionalLightsExtraData2;
         }
 
@@ -39,9 +38,8 @@ namespace UnityEngine.Rendering.Universal.Internal
         MixedLightingSetup m_MixedLightingSetup;
 
         // Additional lights are point lights only. Their order in these arrays defines the additional light index used by the shaders.
-        Vector4[] m_AdditionalLightPositions;   // xyz: position, w: radius (range)
-        Vector4[] m_AdditionalLightColors;      // w: 1 if the light uses subtractive mixed lighting
-        float[] m_AdditionalLightsExtraData1;
+        Vector4[] m_AdditionalLightPositions;   // xyz: position, w: radius (range), negative if the light uses subtractive mixed lighting
+        Vector4[] m_AdditionalLightColors;      // w: extra data 1
         float[] m_AdditionalLightsExtraData2;   // Unity has no support for binding uint arrays. We will use asuint() in the shader instead.
         int[] m_PointLightVisibleIndices;       // Maps an additional light index to its index in lightData.visibleLights.
 
@@ -98,13 +96,11 @@ namespace UnityEngine.Rendering.Universal.Internal
 
             LightConstantBuffer._AdditionalLightsPosition = Shader.PropertyToID("_AdditionalLightsPosition");
             LightConstantBuffer._AdditionalLightsColor = Shader.PropertyToID("_AdditionalLightsColor");
-            LightConstantBuffer._AdditionalLightsExtraData1 = Shader.PropertyToID("_AdditionalLightsExtraData1");
             LightConstantBuffer._AdditionalLightsExtraData2 = Shader.PropertyToID("_AdditionalLightsExtraData2");
 
             int maxLights = UniversalRenderPipeline.maxVisibleAdditionalLights;
             m_AdditionalLightPositions = new Vector4[maxLights];
             m_AdditionalLightColors = new Vector4[maxLights];
-            m_AdditionalLightsExtraData1 = new float[maxLights];
             m_AdditionalLightsExtraData2 = new float[maxLights];
             m_PointLightVisibleIndices = new int[maxLights];
 
@@ -476,14 +472,10 @@ namespace UnityEngine.Rendering.Universal.Internal
                     ref VisibleLight visibleLight = ref lights.UnsafeElementAtMutable(m_PointLightVisibleIndices[i]);
                     Light light = visibleLight.light;
 
+                    // The radius sign flags subtractive mixed lighting, attenuation only uses the squared radius.
                     Vector4 position = visibleLight.localToWorldMatrix.GetColumn(3);
-                    position.w = visibleLight.range;
+                    position.w = UpdateMixedLightingSetup(light) ? -visibleLight.range : visibleLight.range;
                     m_AdditionalLightPositions[i] = position;
-
-                    // VisibleLight.finalColor already returns color in active color space
-                    Vector4 color = visibleLight.finalColor;
-                    color.w = UpdateMixedLightingSetup(light) ? 1f : 0f;
-                    m_AdditionalLightColors[i] = color;
 
                     float extraData1 = 0.0f;
                     uint extraData2 = 0;
@@ -492,13 +484,16 @@ namespace UnityEngine.Rendering.Universal.Internal
                         extraData1 = additionalLightData.extraData1;
                         extraData2 = additionalLightData.extraData2;
                     }
-                    m_AdditionalLightsExtraData1[i] = extraData1;
+
+                    // VisibleLight.finalColor already returns color in active color space
+                    Vector4 color = visibleLight.finalColor;
+                    color.w = extraData1;
+                    m_AdditionalLightColors[i] = color;
                     m_AdditionalLightsExtraData2[i] = math.asfloat(extraData2);
                 }
 
                 cmd.SetGlobalVectorArray(LightConstantBuffer._AdditionalLightsPosition, m_AdditionalLightPositions);
                 cmd.SetGlobalVectorArray(LightConstantBuffer._AdditionalLightsColor, m_AdditionalLightColors);
-                cmd.SetGlobalFloatArray(LightConstantBuffer._AdditionalLightsExtraData1, m_AdditionalLightsExtraData1);
                 cmd.SetGlobalFloatArray(LightConstantBuffer._AdditionalLightsExtraData2, m_AdditionalLightsExtraData2);
 
                 cmd.SetGlobalVector(LightConstantBuffer._AdditionalLightsCount, new Vector4(additionalLightsCount, 0.0f, 0.0f, 0.0f));

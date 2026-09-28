@@ -19,7 +19,7 @@ struct Light
 };
 
 #if USE_FORWARD_PLUS && defined(LIGHTMAP_ON) && defined(LIGHTMAP_SHADOW_MIXING)
-#define FORWARD_PLUS_SUBTRACTIVE_LIGHT_CHECK if (_AdditionalLightsColor[lightIndex].a > 0.0h) continue;
+#define FORWARD_PLUS_SUBTRACTIVE_LIGHT_CHECK if (_AdditionalLightsPosition[lightIndex].w < 0.0) continue;
 #else
 #define FORWARD_PLUS_SUBTRACTIVE_LIGHT_CHECK
 #endif
@@ -149,7 +149,7 @@ Light GetMainLight(InputData inputData, half4 shadowMask, AmbientOcclusionFactor
 // Custom per-light data, set through UniversalAdditionalLightData.extraData1.
 float GetAdditionalLightExtraData1(int perObjectLightIndex)
 {
-    return _AdditionalLightsExtraData1[perObjectLightIndex];
+    return _AdditionalLightsColor[perObjectLightIndex].a;
 }
 
 // Custom per-light data, set through UniversalAdditionalLightData.extraData2.
@@ -161,8 +161,8 @@ uint GetAdditionalLightExtraData2(int perObjectLightIndex)
 // Fills a light struct given a perObjectLightIndex. Additional lights are always point lights.
 Light GetAdditionalPerObjectLight(int perObjectLightIndex, float3 positionWS)
 {
-    float4 lightPositionWS = _AdditionalLightsPosition[perObjectLightIndex]; // w: radius
-    half3 color = _AdditionalLightsColor[perObjectLightIndex].rgb;
+    float4 lightPositionWS = _AdditionalLightsPosition[perObjectLightIndex]; // w: radius, negative for subtractive mixed lights
+    half3 color = half3(_AdditionalLightsColor[perObjectLightIndex].rgb);
 
     float3 lightVector = lightPositionWS.xyz - positionWS;
     float distanceSqr = max(dot(lightVector, lightVector), HALF_MIN);
