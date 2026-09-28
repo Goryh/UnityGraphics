@@ -64,8 +64,6 @@ namespace UnityEditor.Rendering.Universal
 
             public static readonly GUIContent LightCookieSize = EditorGUIUtility.TrTextContent("Cookie Size", "Controls the size of the cookie mask currently assigned to the light.");
             public static readonly GUIContent LightCookieOffset = EditorGUIUtility.TrTextContent("Cookie Offset", "Controls the offset of the cookie mask currently assigned to the light.");
-            public static readonly GUIContent ExtraData1 = EditorGUIUtility.TrTextContent("Extra Data 1", "Custom per-light float passed to shaders (GetAdditionalLightExtraData1). Only used by point lights.");
-            public static readonly GUIContent ExtraData2 = EditorGUIUtility.TrTextContent("Extra Data 2", "Custom per-light uint passed to shaders (GetAdditionalLightExtraData2). Only used by point lights.");
             /// <summary>Title with "Rendering Layer"</summary>
             public static readonly GUIContent RenderingLayers = EditorGUIUtility.TrTextContent("Rendering Layers", "Select the Rendering Layers that the Light affects. This Light affects objects where at least one Rendering Layer value matches.");
             public static readonly GUIContent RenderingLayersDisabled = EditorGUIUtility.TrTextContent("Rendering Layers", "Rendering Layers are disabled because they have a small GPU performance cost. To enable this setting, go to the active Universal Render Pipeline Asset, and enable Lighting -> Use Rendering Layers.");

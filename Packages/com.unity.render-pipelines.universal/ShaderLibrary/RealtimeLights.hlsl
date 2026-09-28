@@ -139,22 +139,22 @@ Light GetMainLight(InputData inputData, half4 shadowMask, AmbientOcclusionFactor
     return light;
 }
 
-// Custom per-light data, set through UniversalAdditionalLightData.extraData1.
-float GetAdditionalLightExtraData1(int perObjectLightIndex)
+// Internal radius of the emitting sphere of a spherical light (SphericalLight.areaRadius).
+float GetAdditionalLightAreaRadius(int perObjectLightIndex)
 {
     return _AdditionalLightsColor[perObjectLightIndex].a;
 }
 
-// Custom per-light data, set through UniversalAdditionalLightData.extraData2.
-uint GetAdditionalLightExtraData2(int perObjectLightIndex)
+// SphericalLight.exclusionMask.
+uint GetAdditionalLightExclusionMask(int perObjectLightIndex)
 {
-    return asuint(_AdditionalLightsExtraData2[perObjectLightIndex]);
+    return _AdditionalLightsExclusionMask[perObjectLightIndex];
 }
 
-// Fills a light struct given a perObjectLightIndex. Additional lights are always point lights.
+// Fills a light struct given a perObjectLightIndex. Additional lights are always spherical lights, lit like point lights.
 Light GetAdditionalPerObjectLight(int perObjectLightIndex, float3 positionWS)
 {
-    float4 lightPositionWS = _AdditionalLightsPosition[perObjectLightIndex]; // w: radius
+    float4 lightPositionWS = _AdditionalLightsPosition[perObjectLightIndex]; // w: range
     half3 color = half3(_AdditionalLightsColor[perObjectLightIndex].rgb);
 
     float3 lightVector = lightPositionWS.xyz - positionWS;

@@ -140,18 +140,14 @@ float4 _FPParams1;
 
 #endif
 
-// Additional lights are point lights only. Directional lights other than the main light, spot lights and
-// all other light types are not uploaded.
-// GLES3 causes a performance regression in some devices when using CBUFFER.
-#ifndef LIGHT_SHADOWS_NO_CBUFFER
+// Additional lights are the visible SphericalLights. Unity lights other than the main light are not uploaded.
+// The buffer is bound from C# (ForwardLights.m_LightDataBuffer), so it must stay a constant buffer and its layout
+// must match: MAX_VISIBLE_LIGHTS entries of 16 bytes per array.
 CBUFFER_START(AdditionalLights)
-#endif
-float4 _AdditionalLightsPosition[MAX_VISIBLE_LIGHTS]; // xyz: position, w: radius (range)
-float4 _AdditionalLightsColor[MAX_VISIBLE_LIGHTS];    // rgb: color, a: extra data 1. Read it with GetAdditionalLightExtraData1().
-float _AdditionalLightsExtraData2[MAX_VISIBLE_LIGHTS]; // we want uint[] but Unity api does not support it. Read it with GetAdditionalLightExtraData2().
-#ifndef LIGHT_SHADOWS_NO_CBUFFER
+float4 _AdditionalLightsPosition[MAX_VISIBLE_LIGHTS];   // xyz: position, w: range (external radius)
+float4 _AdditionalLightsColor[MAX_VISIBLE_LIGHTS];      // rgb: color, a: area radius (internal radius). Read it with GetAdditionalLightAreaRadius().
+uint _AdditionalLightsExclusionMask[MAX_VISIBLE_LIGHTS]; // Read it with GetAdditionalLightExclusionMask().
 CBUFFER_END
-#endif
 
 #if USE_FORWARD_PLUS
 
