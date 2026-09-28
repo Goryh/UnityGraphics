@@ -21,6 +21,6 @@ namespace UnityEngine.Rendering.Universal
         public const int k_MaxVisibleLightCountMobile = 255;
 
         /// <summary>Max number of lights supported on desktop platforms.</summary>
-        public const int k_MaxVisibleLightCountDesktop = 256;
+        public const int k_MaxVisibleLightCountDesktop = 255;
     };
 }
