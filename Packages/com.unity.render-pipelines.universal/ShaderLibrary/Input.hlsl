@@ -145,7 +145,7 @@ float4 _FPParams1;
 // must match: MAX_VISIBLE_LIGHTS entries of 16 bytes per array.
 CBUFFER_START(AdditionalLights)
 float4 _AdditionalLightsPosition[MAX_VISIBLE_LIGHTS];   // xyz: position, w: range (external radius)
-float4 _AdditionalLightsColor[MAX_VISIBLE_LIGHTS];      // rgb: color, a: area radius (internal radius). Read it with GetAdditionalLightAreaRadius().
+half4 _AdditionalLightsColor[MAX_VISIBLE_LIGHTS];       // rgb: color, a: area radius (internal radius). Read it with GetAdditionalLightAreaRadius().
 uint _AdditionalLightsExclusionMask[MAX_VISIBLE_LIGHTS]; // Read it with GetAdditionalLightExclusionMask().
 CBUFFER_END
 

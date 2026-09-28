@@ -140,7 +140,7 @@ Light GetMainLight(InputData inputData, half4 shadowMask, AmbientOcclusionFactor
 }
 
 // Internal radius of the emitting sphere of a spherical light (SphericalLight.areaRadius).
-float GetAdditionalLightAreaRadius(int perObjectLightIndex)
+half GetAdditionalLightAreaRadius(int perObjectLightIndex)
 {
     return _AdditionalLightsColor[perObjectLightIndex].a;
 }
@@ -155,7 +155,7 @@ uint GetAdditionalLightExclusionMask(int perObjectLightIndex)
 Light GetAdditionalPerObjectLight(int perObjectLightIndex, float3 positionWS)
 {
     float4 lightPositionWS = _AdditionalLightsPosition[perObjectLightIndex]; // w: range
-    half3 color = half3(_AdditionalLightsColor[perObjectLightIndex].rgb);
+    half3 color = _AdditionalLightsColor[perObjectLightIndex].rgb;
 
     float3 lightVector = lightPositionWS.xyz - positionWS;
     float distanceSqr = max(dot(lightVector, lightVector), HALF_MIN);
