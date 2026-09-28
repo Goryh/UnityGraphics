@@ -29,7 +29,6 @@ struct Light
     uint lightIndex; \
     ClusterIterator _urp_internal_clusterIterator = ClusterInit(inputData.normalizedScreenSpaceUV); \
     [loop] while (ClusterNext(_urp_internal_clusterIterator, lightIndex)) { \
-        lightIndex += URP_FP_DIRECTIONAL_LIGHTS_COUNT; \
         FORWARD_PLUS_SUBTRACTIVE_LIGHT_CHECK
     #define LIGHT_LOOP_END } }
 #else
@@ -53,6 +52,20 @@ float DistanceAttenuation(float distanceSqr, half2 distanceAttenuation)
 
     // Use the smoothing factor also used in the Unity lightmapper.
     half factor = half(distanceSqr * distanceAttenuationFloat.x);
+    half smoothFactor = saturate(half(1.0) - factor * factor);
+    smoothFactor = smoothFactor * smoothFactor;
+
+    return lightAtten * smoothFactor;
+}
+
+// Distance attenuation of a point light with the given radius (range).
+// Matches DistanceAttenuation() with distanceAttenuation.x = 1 / radius^2.
+float PointLightDistanceAttenuation(float distanceSqr, float radius)
+{
+    float lightAtten = rcp(distanceSqr);
+
+    // Use the smoothing factor also used in the Unity lightmapper.
+    half factor = half(distanceSqr * rcp(radius * radius));
     half smoothFactor = saturate(half(1.0) - factor * factor);
     smoothFactor = smoothFactor * smoothFactor;
 
@@ -133,76 +146,50 @@ Light GetMainLight(InputData inputData, half4 shadowMask, AmbientOcclusionFactor
     return light;
 }
 
-// Fills a light struct given a perObjectLightIndex
+// Custom per-light data, set through UniversalAdditionalLightData.extraData1.
+float GetAdditionalLightExtraData1(int perObjectLightIndex)
+{
+    return _AdditionalLightsExtraData1[perObjectLightIndex];
+}
+
+// Custom per-light data, set through UniversalAdditionalLightData.extraData2.
+uint GetAdditionalLightExtraData2(int perObjectLightIndex)
+{
+    return asuint(_AdditionalLightsExtraData2[perObjectLightIndex]);
+}
+
+// Fills a light struct given a perObjectLightIndex. Additional lights are always point lights.
 Light GetAdditionalPerObjectLight(int perObjectLightIndex, float3 positionWS)
 {
-    // Abstraction over Light input constants
-#if USE_STRUCTURED_BUFFER_FOR_LIGHT_DATA
-    float4 lightPositionWS = _AdditionalLightsBuffer[perObjectLightIndex].position;
-    half3 color = _AdditionalLightsBuffer[perObjectLightIndex].color.rgb;
-    half4 distanceAndSpotAttenuation = _AdditionalLightsBuffer[perObjectLightIndex].attenuation;
-    half4 spotDirection = _AdditionalLightsBuffer[perObjectLightIndex].spotDirection;
-    uint lightLayerMask = _AdditionalLightsBuffer[perObjectLightIndex].layerMask;
-#else
-    float4 lightPositionWS = _AdditionalLightsPosition[perObjectLightIndex];
+    float4 lightPositionWS = _AdditionalLightsPosition[perObjectLightIndex]; // w: radius
     half3 color = _AdditionalLightsColor[perObjectLightIndex].rgb;
-    half4 distanceAndSpotAttenuation = _AdditionalLightsAttenuation[perObjectLightIndex];
-    half4 spotDirection = _AdditionalLightsSpotDir[perObjectLightIndex];
-    uint lightLayerMask = asuint(_AdditionalLightsLayerMasks[perObjectLightIndex]);
-#endif
 
-    // Directional lights store direction in lightPosition.xyz and have .w set to 0.0.
-    // This way the following code will work for both directional and punctual lights.
-    float3 lightVector = lightPositionWS.xyz - positionWS * lightPositionWS.w;
+    float3 lightVector = lightPositionWS.xyz - positionWS;
     float distanceSqr = max(dot(lightVector, lightVector), HALF_MIN);
 
     half3 lightDirection = half3(lightVector * rsqrt(distanceSqr));
     // full-float precision required on some platforms
-    float attenuation = DistanceAttenuation(distanceSqr, distanceAndSpotAttenuation.xy) * AngleAttenuation(spotDirection.xyz, lightDirection, distanceAndSpotAttenuation.zw);
+    float attenuation = PointLightDistanceAttenuation(distanceSqr, lightPositionWS.w);
 
     Light light;
     light.direction = lightDirection;
     light.distanceAttenuation = attenuation;
-    light.shadowAttenuation = 1.0; // This value can later be overridden in GetAdditionalLight(uint i, float3 positionWS, half4 shadowMask)
+    light.shadowAttenuation = 1.0; // Additional lights don't cast shadows.
     light.color = color;
-    light.layerMask = lightLayerMask;
+    light.layerMask = 0xFFFFFFFFu; // Additional lights affect all rendering layers.
 
     return light;
 }
 
 uint GetPerObjectLightIndexOffset()
 {
-#if USE_STRUCTURED_BUFFER_FOR_LIGHT_DATA
-    return uint(unity_LightData.x);
-#else
     return 0;
-#endif
 }
 
 // Returns a per-object index given a loop index.
 // This abstract the underlying data implementation for storing lights/light indices
 int GetPerObjectLightIndex(uint index)
 {
-/////////////////////////////////////////////////////////////////////////////////////////////
-// Structured Buffer Path                                                                   /
-//                                                                                          /
-// Lights and light indices are stored in StructuredBuffer. We can just index them.         /
-// Currently all non-mobile platforms take this path :(                                     /
-// There are limitation in mobile GPUs to use SSBO (performance / no vertex shader support) /
-/////////////////////////////////////////////////////////////////////////////////////////////
-#if USE_STRUCTURED_BUFFER_FOR_LIGHT_DATA
-    uint offset = uint(unity_LightData.x);
-    return _AdditionalLightsIndices[offset + index];
-
-/////////////////////////////////////////////////////////////////////////////////////////////
-// UBO path                                                                                 /
-//                                                                                          /
-// We store 8 light indices in half4 unity_LightIndices[2];                                 /
-// Due to memory alignment unity doesn't support int[] or float[]                           /
-// Even trying to reinterpret cast the unity_LightIndices to float[] won't work             /
-// it will cast to float4[] and create extra register pressure. :(                          /
-/////////////////////////////////////////////////////////////////////////////////////////////
-#else
     // since index is uint shader compiler will implement
     // div & mod as bitfield ops (shift and mask).
 
@@ -216,7 +203,6 @@ int GetPerObjectLightIndex(uint index)
     // It appears indexing half4 as min16float4 on DX11 can fail. (dp4 {min16f})
     float4 tmp = unity_LightIndices[index / 4];
     return int(tmp[index % 4]);
-#endif
 }
 
 // Fills a light struct given a loop i index. This will convert the i
@@ -238,20 +224,8 @@ Light GetAdditionalLight(uint i, float3 positionWS, half4 shadowMask)
 #else
     int lightIndex = GetPerObjectLightIndex(i);
 #endif
-    Light light = GetAdditionalPerObjectLight(lightIndex, positionWS);
-
-#if USE_STRUCTURED_BUFFER_FOR_LIGHT_DATA
-    half4 occlusionProbeChannels = _AdditionalLightsBuffer[lightIndex].occlusionProbeChannels;
-#else
-    half4 occlusionProbeChannels = _AdditionalLightsOcclusionProbes[lightIndex];
-#endif
-    light.shadowAttenuation = AdditionalLightShadow(lightIndex, positionWS, light.direction, shadowMask, occlusionProbeChannels);
-#if defined(_LIGHT_COOKIES)
-    real3 cookieColor = SampleAdditionalLightCookie(lightIndex, positionWS);
-    light.color *= cookieColor;
-#endif
-
-    return light;
+    // Additional lights have neither shadows (realtime or baked) nor cookies, so shadowMask is unused.
+    return GetAdditionalPerObjectLight(lightIndex, positionWS);
 }
 
 Light GetAdditionalLight(uint i, InputData inputData, half4 shadowMask, AmbientOcclusionFactor aoFactor)

@@ -344,11 +344,7 @@ namespace UnityEngine.Rendering.Universal.Internal
             bool shadowsEnabled = shadowData.additionalLightShadowsEnabled;
             if (!shadowsEnabled)
             {
-                // If (realtime) shadows are disabled, but any additional light casts baked shadows, we need to do empty rendering to setup the _MainLightShadowParams uniform,
-                // which is also used when sampling baked shadows. This allows for using baked shadows even when realtime shadows are completely disabled.
-                if (AnyAdditionalLightHasMixedShadows(lightData))
-                    return SetupForEmptyRendering(cameraData.renderer.stripShadowsOffVariants, shadowsEnabled, lightData, shadowData);
-
+                // Additional lights have neither realtime nor baked shadows, so there is nothing to set up.
                 return false;
             }
 
@@ -644,28 +640,6 @@ namespace UnityEngine.Rendering.Universal.Internal
             {
                 m_AdditionalLightShadowDescriptor = new RenderTextureDescriptor(renderTargetWidth, renderTargetHeight, RenderTextureFormat.Shadowmap, k_ShadowmapBufferBits);
             }
-        }
-
-        bool AnyAdditionalLightHasMixedShadows(UniversalLightData lightData)
-        {
-            for (int visibleLightIndex = 0; visibleLightIndex < lightData.visibleLights.Length; ++visibleLightIndex)
-            {
-                if (visibleLightIndex == lightData.mainLightIndex)
-                {
-                    continue;
-                }
-
-                Light light = lightData.visibleLights[visibleLightIndex].light;
-                if (light.shadows != LightShadows.None &&
-                    light.bakingOutput.isBaked &&
-                    light.bakingOutput.mixedLightingMode != MixedLightingMode.IndirectOnly &&
-                    light.bakingOutput.lightmapBakeType == LightmapBakeType.Mixed)
-                {
-                    return true;
-                }
-            }
-
-            return false;
         }
 
         bool SetupForEmptyRendering(bool stripShadowsOffVariants, bool shadowsEnabled, UniversalLightData lightData, UniversalShadowData shadowData)

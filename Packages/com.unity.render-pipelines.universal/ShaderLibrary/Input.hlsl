@@ -139,33 +139,25 @@ float4 _FPParams1;
 // Scale from screen-space UV [0, 1] to tile coordinates [0, tile resolution].
 #define URP_FP_TILE_SCALE ((float2)_FPParams0.xy)
 #define URP_FP_TILE_COUNT_X ((uint)_FPParams0.z)
-// Directional lights would be in all tiles, so they don't go into the tile structure.
-// Instead, they are stored first in the light buffer.
-#define URP_FP_DIRECTIONAL_LIGHTS_COUNT ((uint)_FPParams0.w)
 
 // Tile count of a single view, used to offset into the tiles of the second eye.
 #define URP_FP_TILE_COUNT ((uint)_FPParams1.x)
 
 #endif
 
-#if USE_STRUCTURED_BUFFER_FOR_LIGHT_DATA
-StructuredBuffer<LightData> _AdditionalLightsBuffer;
-StructuredBuffer<int> _AdditionalLightsIndices;
-#else
+// Additional lights are point lights only. Directional lights other than the main light, spot lights and
+// all other light types are not uploaded.
 // GLES3 causes a performance regression in some devices when using CBUFFER.
 #ifndef LIGHT_SHADOWS_NO_CBUFFER
 CBUFFER_START(AdditionalLights)
 #endif
-float4 _AdditionalLightsPosition[MAX_VISIBLE_LIGHTS];
+float4 _AdditionalLightsPosition[MAX_VISIBLE_LIGHTS]; // xyz: position, w: radius (range)
 // In Forward+, .a stores whether the light is using subtractive mixed mode.
 half4 _AdditionalLightsColor[MAX_VISIBLE_LIGHTS];
-half4 _AdditionalLightsAttenuation[MAX_VISIBLE_LIGHTS];
-half4 _AdditionalLightsSpotDir[MAX_VISIBLE_LIGHTS];
-half4 _AdditionalLightsOcclusionProbes[MAX_VISIBLE_LIGHTS];
-float _AdditionalLightsLayerMasks[MAX_VISIBLE_LIGHTS]; // we want uint[] but Unity api does not support it.
+float _AdditionalLightsExtraData1[MAX_VISIBLE_LIGHTS];
+float _AdditionalLightsExtraData2[MAX_VISIBLE_LIGHTS]; // we want uint[] but Unity api does not support it. Read it with GetAdditionalLightExtraData2().
 #ifndef LIGHT_SHADOWS_NO_CBUFFER
 CBUFFER_END
-#endif
 #endif
 
 #if USE_FORWARD_PLUS

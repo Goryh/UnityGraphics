@@ -1665,8 +1665,9 @@ namespace UnityEngine.Rendering.Universal
             shadowData.mainLightShadowsEnabled = urpAsset.supportsMainLightShadows && urpAsset.mainLightRenderingMode == LightRenderingMode.PerPixel;
             shadowData.supportsMainLightShadows = SystemInfo.supportsShadows && shadowData.mainLightShadowsEnabled && cameraRenderShadows;
 
-            shadowData.additionalLightShadowsEnabled = urpAsset.supportsAdditionalLightShadows && (urpAsset.additionalLightsRenderingMode == LightRenderingMode.PerPixel || isForwardPlus);
-            shadowData.supportsAdditionalLightShadows = SystemInfo.supportsShadows && shadowData.additionalLightShadowsEnabled && !lightData.shadeAdditionalLightsPerVertex && cameraRenderShadows;
+            // Additional lights never cast shadows.
+            shadowData.additionalLightShadowsEnabled = false;
+            shadowData.supportsAdditionalLightShadows = false;
 
             // Early out if shadows are not rendered...
             if (!shadowData.supportsMainLightShadows && !shadowData.supportsAdditionalLightShadows)

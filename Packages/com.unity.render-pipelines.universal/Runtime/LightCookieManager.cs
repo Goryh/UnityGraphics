@@ -336,31 +336,9 @@ namespace UnityEngine.Rendering.Universal
                 isMainLightAvailable = SetupMainLight(cmd, ref mainLight);
             }
 
-            // Additional lights, N spot and point lights in atlas
-            bool isAdditionalLightsAvailable = lightData.additionalLightsCount > 0;
-            if (isAdditionalLightsAvailable)
-            {
-                isAdditionalLightsAvailable = SetupAdditionalLights(cmd, lightData);
-            }
-
-            // Ensure cookies are disabled if no cookies are available.
-            if (!isAdditionalLightsAvailable)
-            {
-                // ..on the CPU (for deferred)
-                if (m_VisibleLightIndexToShaderDataIndex != null &&
-                    m_AdditionalLightsCookieShaderData.isUploaded)
-                {
-                    int len = m_VisibleLightIndexToShaderDataIndex.Length;
-                    for (int i = 0; i < len; i++)
-                        m_VisibleLightIndexToShaderDataIndex[i] = -1;
-                }
-
-                // ..on the GPU
-                m_AdditionalLightsCookieShaderData?.Clear(cmd);
-            }
-
-            // Main and additional lights are merged into one keyword to reduce variants.
-            IsKeywordLightCookieEnabled = isMainLightAvailable || isAdditionalLightsAvailable;
+            // Additional lights don't support cookies, so their atlas and shader data are never initialized and
+            // GetLightCookieShaderDataIndex() always returns -1.
+            IsKeywordLightCookieEnabled = isMainLightAvailable;
             cmd.SetKeyword(ShaderGlobalKeywords.LightCookies, IsKeywordLightCookieEnabled);
         }
 

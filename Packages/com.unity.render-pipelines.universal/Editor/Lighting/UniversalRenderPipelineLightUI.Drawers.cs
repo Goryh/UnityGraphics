@@ -289,6 +289,12 @@ namespace UnityEditor.Rendering.Universal
             {
                 EditorGUILayout.HelpBox(Styles.CullingMaskWarning.text, MessageType.Info);
             }
+
+            if (!serializedLight.settings.lightType.hasMultipleDifferentValues && serializedLight.settings.light.type == LightType.Point)
+            {
+                EditorGUILayout.PropertyField(serializedLight.extraData1Prop, Styles.ExtraData1);
+                EditorGUILayout.PropertyField(serializedLight.extraData2Prop, Styles.ExtraData2);
+            }
         }
 
         static void DrawShadowsContent(UniversalRenderPipelineSerializedLight serializedLight, Editor owner)

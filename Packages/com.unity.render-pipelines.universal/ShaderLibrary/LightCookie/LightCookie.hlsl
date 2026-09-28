@@ -81,37 +81,10 @@ real3 SampleMainLightCookie(float3 samplePositionWS)
              : color.rrr;
 }
 
+// Additional lights don't support cookies. Kept so existing custom lighting code still compiles.
 real3 SampleAdditionalLightCookie(int perObjectLightIndex, float3 samplePositionWS)
 {
-    if(!IsLightCookieEnabled(perObjectLightIndex))
-        return real3(1,1,1);
-
-    int lightType     = GetLightCookieLightType(perObjectLightIndex);
-    int isSpot        = lightType == URP_LIGHT_TYPE_SPOT;
-    int isDirectional = lightType == URP_LIGHT_TYPE_DIRECTIONAL;
-
-    float4x4 worldToLight = GetLightCookieWorldToLightMatrix(perObjectLightIndex);
-    float4 uvRect = GetLightCookieAtlasUVRect(perObjectLightIndex);
-
-    float2 uv;
-    if(isSpot)
-    {
-        uv = ComputeLightCookieUVSpot(worldToLight, samplePositionWS, uvRect);
-    }
-    else if(isDirectional)
-    {
-        uv = ComputeLightCookieUVDirectional(worldToLight, samplePositionWS, uvRect, URP_TEXTURE_WRAP_MODE_REPEAT);
-    }
-    else
-    {
-        uv = ComputeLightCookieUVPoint(worldToLight, samplePositionWS, uvRect);
-    }
-
-    real4 color = SampleAdditionalLightsCookieAtlasTexture(uv);
-
-    return IsAdditionalLightsCookieAtlasTextureRGBFormat() ? color.rgb
-            : IsAdditionalLightsCookieAtlasTextureAlphaFormat() ? color.aaa
-            : color.rrr;
+    return real3(1, 1, 1);
 }
 
 #endif //UNIVERSAL_LIGHT_COOKIE_INCLUDED

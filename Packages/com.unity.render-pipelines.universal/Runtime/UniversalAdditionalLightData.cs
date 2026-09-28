@@ -257,6 +257,28 @@ namespace UnityEngine.Rendering.Universal
         [SerializeField] Vector2 m_LightCookieOffset = Vector2.zero;
 
         /// <summary>
+        /// Custom per-light value passed to shaders, read with GetAdditionalLightExtraData1(). Only used by point lights.
+        /// </summary>
+        [Tooltip("Custom per-light value passed to shaders. Only used by point lights.")]
+        public float extraData1
+        {
+            get => m_ExtraData1;
+            set => m_ExtraData1 = value;
+        }
+        [SerializeField] float m_ExtraData1 = 0.0f;
+
+        /// <summary>
+        /// Custom per-light bits passed to shaders, read with GetAdditionalLightExtraData2(). Only used by point lights.
+        /// </summary>
+        [Tooltip("Custom per-light bits passed to shaders. Only used by point lights.")]
+        public uint extraData2
+        {
+            get => m_ExtraData2;
+            set => m_ExtraData2 = value;
+        }
+        [SerializeField] uint m_ExtraData2 = 0;
+
+        /// <summary>
         /// Light soft shadow filtering quality.
         /// </summary>
         [Tooltip("Controls the filtering quality of soft shadows. Higher quality has lower performance.")]
