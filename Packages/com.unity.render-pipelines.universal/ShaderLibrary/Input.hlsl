@@ -151,7 +151,7 @@ float4 _FPParams1;
 #ifndef LIGHT_SHADOWS_NO_CBUFFER
 CBUFFER_START(AdditionalLights)
 #endif
-float4 _AdditionalLightsPosition[MAX_VISIBLE_LIGHTS]; // xyz: position, w: radius (range), negative if the light uses subtractive mixed mode
+float4 _AdditionalLightsPosition[MAX_VISIBLE_LIGHTS]; // xyz: position, w: radius (range)
 float4 _AdditionalLightsColor[MAX_VISIBLE_LIGHTS];    // rgb: color, a: extra data 1. Read it with GetAdditionalLightExtraData1().
 float _AdditionalLightsExtraData2[MAX_VISIBLE_LIGHTS]; // we want uint[] but Unity api does not support it. Read it with GetAdditionalLightExtraData2().
 #ifndef LIGHT_SHADOWS_NO_CBUFFER

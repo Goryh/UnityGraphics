@@ -38,7 +38,7 @@ namespace UnityEngine.Rendering.Universal.Internal
         MixedLightingSetup m_MixedLightingSetup;
 
         // Additional lights are point lights only. Their order in these arrays defines the additional light index used by the shaders.
-        Vector4[] m_AdditionalLightPositions;   // xyz: position, w: radius (range), negative if the light uses subtractive mixed lighting
+        Vector4[] m_AdditionalLightPositions;   // xyz: position, w: radius (range)
         Vector4[] m_AdditionalLightColors;      // w: extra data 1
         float[] m_AdditionalLightsExtraData2;   // Unity has no support for binding uint arrays. We will use asuint() in the shader instead.
         int[] m_PointLightVisibleIndices;       // Maps an additional light index to its index in lightData.visibleLights.
@@ -312,6 +312,7 @@ namespace UnityEngine.Rendering.Universal.Internal
                 cmd.SetKeyword(ShaderGlobalKeywords.AdditionalLightsPixel,  lightCountCheck && !additionalLightsPerVertex && !m_UseForwardPlus);
                 cmd.SetKeyword(ShaderGlobalKeywords.ForwardPlus, m_UseForwardPlus);
 
+                // Mixed lighting (shadowmask and subtractive) is only supported for the main light.
                 bool isShadowMask = lightData.supportsMixedLighting && m_MixedLightingSetup == MixedLightingSetup.ShadowMask;
                 bool isShadowMaskAlways = isShadowMask && QualitySettings.shadowmaskMode == ShadowmaskMode.Shadowmask;
                 bool isSubtractive = lightData.supportsMixedLighting && m_MixedLightingSetup == MixedLightingSetup.Subtractive;
@@ -369,31 +370,6 @@ namespace UnityEngine.Rendering.Universal.Internal
             m_LightCookieManager = null;
         }
 
-        // Returns whether the light uses subtractive mixed lighting, and records the mixed lighting setup of the frame.
-        bool UpdateMixedLightingSetup(Light light)
-        {
-            if (light == null)
-                return false;
-
-            var lightBakingOutput = light.bakingOutput;
-            if (lightBakingOutput.lightmapBakeType == LightmapBakeType.Mixed &&
-                light.shadows != LightShadows.None &&
-                m_MixedLightingSetup == MixedLightingSetup.None)
-            {
-                switch (lightBakingOutput.mixedLightingMode)
-                {
-                    case MixedLightingMode.Subtractive:
-                        m_MixedLightingSetup = MixedLightingSetup.Subtractive;
-                        break;
-                    case MixedLightingMode.Shadowmask:
-                        m_MixedLightingSetup = MixedLightingSetup.ShadowMask;
-                        break;
-                }
-            }
-
-            return lightBakingOutput.isBaked && lightBakingOutput.lightmapBakeType == LightmapBakeType.Mixed && lightBakingOutput.mixedLightingMode == MixedLightingMode.Subtractive;
-        }
-
         void InitializeLightConstants(NativeArray<VisibleLight> lights, int lightIndex, bool supportsLightLayers, out Vector4 lightPos, out Vector4 lightColor, out Vector4 lightAttenuation, out Vector4 lightSpotDir, out Vector4 lightOcclusionProbeChannel, out uint lightLayerMask, out bool isSubtractive)
         {
             UniversalRenderPipeline.InitializeLightConstants_Common(lights, lightIndex, out lightPos, out lightColor, out lightAttenuation, out lightSpotDir, out lightOcclusionProbeChannel);
@@ -409,7 +385,23 @@ namespace UnityEngine.Rendering.Universal.Internal
             if (light == null)
                 return;
 
-            isSubtractive = UpdateMixedLightingSetup(light);
+            var lightBakingOutput = light.bakingOutput;
+            isSubtractive = lightBakingOutput.isBaked && lightBakingOutput.lightmapBakeType == LightmapBakeType.Mixed && lightBakingOutput.mixedLightingMode == MixedLightingMode.Subtractive;
+
+            if (lightBakingOutput.lightmapBakeType == LightmapBakeType.Mixed &&
+                light.shadows != LightShadows.None &&
+                m_MixedLightingSetup == MixedLightingSetup.None)
+            {
+                switch (lightBakingOutput.mixedLightingMode)
+                {
+                    case MixedLightingMode.Subtractive:
+                        m_MixedLightingSetup = MixedLightingSetup.Subtractive;
+                        break;
+                    case MixedLightingMode.Shadowmask:
+                        m_MixedLightingSetup = MixedLightingSetup.ShadowMask;
+                        break;
+                }
+            }
 
             if (supportsLightLayers)
             {
@@ -472,9 +464,8 @@ namespace UnityEngine.Rendering.Universal.Internal
                     ref VisibleLight visibleLight = ref lights.UnsafeElementAtMutable(m_PointLightVisibleIndices[i]);
                     Light light = visibleLight.light;
 
-                    // The radius sign flags subtractive mixed lighting, attenuation only uses the squared radius.
                     Vector4 position = visibleLight.localToWorldMatrix.GetColumn(3);
-                    position.w = UpdateMixedLightingSetup(light) ? -visibleLight.range : visibleLight.range;
+                    position.w = visibleLight.range;
                     m_AdditionalLightPositions[i] = position;
 
                     float extraData1 = 0.0f;

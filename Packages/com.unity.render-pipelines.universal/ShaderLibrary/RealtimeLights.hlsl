@@ -18,18 +18,11 @@ struct Light
     uint    layerMask;
 };
 
-#if USE_FORWARD_PLUS && defined(LIGHTMAP_ON) && defined(LIGHTMAP_SHADOW_MIXING)
-#define FORWARD_PLUS_SUBTRACTIVE_LIGHT_CHECK if (_AdditionalLightsPosition[lightIndex].w < 0.0) continue;
-#else
-#define FORWARD_PLUS_SUBTRACTIVE_LIGHT_CHECK
-#endif
-
 #if USE_FORWARD_PLUS
     #define LIGHT_LOOP_BEGIN(lightCount) { \
     uint lightIndex; \
     ClusterIterator _urp_internal_clusterIterator = ClusterInit(inputData.normalizedScreenSpaceUV); \
-    [loop] while (ClusterNext(_urp_internal_clusterIterator, lightIndex)) { \
-        FORWARD_PLUS_SUBTRACTIVE_LIGHT_CHECK
+    [loop] while (ClusterNext(_urp_internal_clusterIterator, lightIndex)) {
     #define LIGHT_LOOP_END } }
 #else
     #define LIGHT_LOOP_BEGIN(lightCount) \
@@ -161,7 +154,7 @@ uint GetAdditionalLightExtraData2(int perObjectLightIndex)
 // Fills a light struct given a perObjectLightIndex. Additional lights are always point lights.
 Light GetAdditionalPerObjectLight(int perObjectLightIndex, float3 positionWS)
 {
-    float4 lightPositionWS = _AdditionalLightsPosition[perObjectLightIndex]; // w: radius, negative for subtractive mixed lights
+    float4 lightPositionWS = _AdditionalLightsPosition[perObjectLightIndex]; // w: radius
     half3 color = half3(_AdditionalLightsColor[perObjectLightIndex].rgb);
 
     float3 lightVector = lightPositionWS.xyz - positionWS;
