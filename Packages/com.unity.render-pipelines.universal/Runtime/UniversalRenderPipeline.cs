@@ -156,7 +156,7 @@ namespace UnityEngine.Rendering.Universal
         internal const int maxLightsPerTile = 16;
         internal const int maxTiles = 4096;
         internal const int maxForwardPlusLights = 255;
-        internal static int maxVisibleReflectionProbes => Math.Min(maxVisibleAdditionalLights, 64);
+        internal static int maxVisibleReflectionProbes => 1;
 
         internal const int k_DefaultRenderingLayerMask = 0x00000001;
         private readonly DebugDisplaySettingsUI m_DebugDisplaySettingsUI = new DebugDisplaySettingsUI();

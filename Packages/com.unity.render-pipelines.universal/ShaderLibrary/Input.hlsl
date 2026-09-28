@@ -28,13 +28,8 @@
 // Forward+ tiles: each tile is one float4 holding up to 16 byte-sized light indices (light index + 1, 0 = no light).
 #define MAX_LIGHTS_PER_TILE 16
 #define MAX_TILES 4096
-#if MAX_VISIBLE_LIGHTS <= 16
-    #define MAX_REFLECTION_PROBES 16
-#elif MAX_VISIBLE_LIGHTS <= 32
-    #define MAX_REFLECTION_PROBES 32
-#else
-    #define MAX_REFLECTION_PROBES 64
-#endif
+// Forward+ reflection probes are not binned into tiles, so only a single probe is kept.
+#define MAX_REFLECTION_PROBES 1
 
 struct InputData
 {
