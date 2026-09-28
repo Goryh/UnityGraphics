@@ -319,8 +319,6 @@ namespace UnityEngine.Rendering.Universal.Internal
             {
                 if (m_UseForwardPlus)
                 {
-                    m_ReflectionProbeManager.UpdateGpuData(CommandBufferHelpers.GetNativeCommandBuffer(cmd), ref renderingData.cullResults);
-
                     using (new ProfilingScope(m_ProfilingSamplerFPComplete))
                     {
                         m_CullingHandle.Complete();
