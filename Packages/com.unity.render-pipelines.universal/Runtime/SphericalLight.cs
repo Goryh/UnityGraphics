@@ -2,8 +2,9 @@ namespace UnityEngine.Rendering.Universal
 {
     /// <summary>
     /// A spherical area light rendered by Forward+ as an additional light.
+    /// <see cref="range"/> and <see cref="areaRadius"/> are scaled by the x component of the transform's global scale.
     /// Changes to the light's properties or transform are not picked up automatically at runtime, call
-    /// <see cref="UpdateLight"/> after moving the light or changing any of its properties.
+    /// <see cref="UpdateLight"/> after moving or scaling the light or changing any of its properties.
     /// </summary>
     [ExecuteAlways]
     [DisallowMultipleComponent]
@@ -13,7 +14,7 @@ namespace UnityEngine.Rendering.Universal
         [SerializeField, ColorUsage(false)] Color m_Color = Color.white;
         [SerializeField, Min(0.0f)] float m_Intensity = 1.0f;
         [SerializeField, Min(0.0f)] float m_Range = 10.0f;
-        [SerializeField, Min(0.0f)] float m_AreaRadius = 0.0f;
+        [SerializeField, Min(0.01f)] float m_AreaRadius = 0.01f;
         [SerializeField] uint m_ExclusionMask = 0;
 
         // Index into SphericalLightRegistry, -1 when the light is not registered.
@@ -38,7 +39,7 @@ namespace UnityEngine.Rendering.Universal
         }
 
         /// <summary>
-        /// The external radius of the light, at which its contribution fades to zero.
+        /// The external radius of the light, at which its contribution fades to zero, before scaling.
         /// </summary>
         public float range
         {
@@ -47,7 +48,7 @@ namespace UnityEngine.Rendering.Universal
         }
 
         /// <summary>
-        /// The internal radius of the light's emitting sphere. It is clamped to <see cref="range"/> when the light is updated.
+        /// The internal radius of the light's emitting sphere, before scaling. It is clamped to <see cref="range"/> when the light is updated.
         /// </summary>
         public float areaRadius
         {
@@ -65,8 +66,23 @@ namespace UnityEngine.Rendering.Universal
         }
 
         /// <summary>
+        /// The factor applied to <see cref="range"/> and <see cref="areaRadius"/>: the x component of the transform's global scale.
+        /// </summary>
+        public float radiusScale => Mathf.Abs(transform.lossyScale.x);
+
+        /// <summary>
+        /// <see cref="range"/> in world units.
+        /// </summary>
+        public float worldRange => m_Range * radiusScale;
+
+        /// <summary>
+        /// <see cref="areaRadius"/> in world units, clamped to <see cref="worldRange"/>.
+        /// </summary>
+        public float worldAreaRadius => Mathf.Min(m_AreaRadius, m_Range) * radiusScale;
+
+        /// <summary>
         /// Sends the current transform and properties of the light to the renderer.
-        /// Call it after moving the light or changing any of its properties.
+        /// Call it after moving or scaling the light or changing any of its properties.
         /// </summary>
         public void UpdateLight()
         {

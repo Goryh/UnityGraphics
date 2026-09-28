@@ -11,8 +11,8 @@ namespace UnityEditor.Rendering.Universal
         {
             public static readonly GUIContent Color = EditorGUIUtility.TrTextContent("Color", "The color of the light.");
             public static readonly GUIContent Intensity = EditorGUIUtility.TrTextContent("Intensity", "The intensity of the light.");
-            public static readonly GUIContent Range = EditorGUIUtility.TrTextContent("Range", "External radius at which the light's contribution fades to zero.");
-            public static readonly GUIContent AreaRadius = EditorGUIUtility.TrTextContent("Area Radius", "Internal radius of the light's emitting sphere. Cannot exceed the range.");
+            public static readonly GUIContent Range = EditorGUIUtility.TrTextContent("Range", "External radius at which the light's contribution fades to zero. Scaled by the transform's global X scale.");
+            public static readonly GUIContent AreaRadius = EditorGUIUtility.TrTextContent("Area Radius", "Internal radius of the light's emitting sphere. Cannot exceed the range. Scaled by the transform's global X scale.");
             public static readonly GUIContent ExclusionMask = EditorGUIUtility.TrTextContent("Exclusion Mask", "Bit mask passed to shaders, read with GetAdditionalLightExclusionMask().");
         }
 
@@ -51,15 +51,20 @@ namespace UnityEditor.Rendering.Universal
             var position = light.transform.position;
             var color = light.color;
 
+            // Handles show and edit the radii in world units, i.e. scaled by the transform's global x scale.
+            float scale = light.radiusScale;
+            if (scale <= 0.0f)
+                return;
+
             EditorGUI.BeginChangeCheck();
 
             using (new Handles.DrawingScope(new Color(color.r, color.g, color.b, 0.75f)))
             {
-                float range = Handles.RadiusHandle(Quaternion.identity, position, light.range);
+                float worldRange = Handles.RadiusHandle(Quaternion.identity, position, light.worldRange);
                 if (EditorGUI.EndChangeCheck())
                 {
                     Undo.RecordObject(light, "Adjust Spherical Light Range");
-                    light.range = range;
+                    light.range = worldRange / scale;
                     light.areaRadius = Mathf.Min(light.areaRadius, light.range);
                     light.UpdateLight();
                 }
@@ -69,11 +74,11 @@ namespace UnityEditor.Rendering.Universal
 
             using (new Handles.DrawingScope(Color.Lerp(color, Color.white, 0.5f)))
             {
-                float areaRadius = Handles.RadiusHandle(Quaternion.identity, position, light.areaRadius);
+                float worldAreaRadius = Handles.RadiusHandle(Quaternion.identity, position, light.worldAreaRadius);
                 if (EditorGUI.EndChangeCheck())
                 {
                     Undo.RecordObject(light, "Adjust Spherical Light Area Radius");
-                    light.areaRadius = Mathf.Min(areaRadius, light.range);
+                    light.areaRadius = Mathf.Min(worldAreaRadius / scale, light.range);
                     light.UpdateLight();
                 }
             }

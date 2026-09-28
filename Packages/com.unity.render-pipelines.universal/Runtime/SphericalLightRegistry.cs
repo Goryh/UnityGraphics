@@ -62,15 +62,14 @@ namespace UnityEngine.Rendering.Universal
 
         internal static void Write(int index, SphericalLight light)
         {
-            float range = light.range;
-            s_PositionRanges[index] = new float4((float3)light.transform.position, range);
+            s_PositionRanges[index] = new float4((float3)light.transform.position, light.worldRange);
 
             // Matches VisibleLight.finalColor for the intensity mode URP sets up (linear intensity in linear color space).
             Color color = light.color;
             if (QualitySettings.activeColorSpace == ColorSpace.Linear)
                 color = color.linear;
             color *= light.intensity;
-            s_ColorAreaRadii[index] = new float4(color.r, color.g, color.b, math.min(light.areaRadius, range));
+            s_ColorAreaRadii[index] = new float4(color.r, color.g, color.b, light.worldAreaRadius);
 
             s_ExclusionMasks[index] = light.exclusionMask;
         }
