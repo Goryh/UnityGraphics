@@ -662,7 +662,7 @@ namespace UnityEngine.Rendering.Universal
             UniversalShadowData shadowData = frameData.Get<UniversalShadowData>();
             UniversalPostProcessingData postProcessingData = frameData.Get<UniversalPostProcessingData>();
 
-            m_ForwardLights.PreSetup(universalRenderingData, cameraData, lightData);
+            m_ForwardLights.PreSetup(cameraData, lightData);
 
             Camera camera = cameraData.camera;
             RenderTextureDescriptor cameraTargetDescriptor = cameraData.cameraTargetDescriptor;

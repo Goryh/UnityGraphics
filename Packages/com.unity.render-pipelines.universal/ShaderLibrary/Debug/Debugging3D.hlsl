@@ -254,12 +254,7 @@ half4 CalculateDebugLightingComplexityColor(in InputData inputData, in SurfaceDa
 #if USE_FORWARD_PLUS
     int numLights = URP_FP_DIRECTIONAL_LIGHTS_COUNT;
     uint entityIndex;
-    ClusterIterator it = ClusterInit(inputData.normalizedScreenSpaceUV, inputData.positionWS, 0);
-    [loop] while (ClusterNext(it, entityIndex))
-    {
-        numLights++;
-    }
-    it = ClusterInit(inputData.normalizedScreenSpaceUV, inputData.positionWS, 1);
+    ClusterIterator it = ClusterInit(inputData.normalizedScreenSpaceUV);
     [loop] while (ClusterNext(it, entityIndex))
     {
         numLights++;

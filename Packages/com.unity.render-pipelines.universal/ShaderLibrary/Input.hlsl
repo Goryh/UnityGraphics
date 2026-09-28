@@ -25,18 +25,14 @@
 #endif
 
 // Match with values in UniversalRenderPipeline.cs
-#define MAX_ZBIN_VEC4S 1024
+// Forward+ tiles: each tile is one float4 holding up to 16 byte-sized light indices (light index + 1, 0 = no light).
+#define MAX_LIGHTS_PER_TILE 16
+#define MAX_TILES 4096
 #if MAX_VISIBLE_LIGHTS <= 16
-    #define MAX_LIGHTS_PER_TILE 32
-    #define MAX_TILE_VEC4S 1024
     #define MAX_REFLECTION_PROBES 16
 #elif MAX_VISIBLE_LIGHTS <= 32
-    #define MAX_LIGHTS_PER_TILE 32
-    #define MAX_TILE_VEC4S 1024
     #define MAX_REFLECTION_PROBES 32
 #else
-    #define MAX_LIGHTS_PER_TILE MAX_VISIBLE_LIGHTS
-    #define MAX_TILE_VEC4S 4096
     #define MAX_REFLECTION_PROBES 64
 #endif
 
@@ -139,22 +135,16 @@ uint _EnableProbeVolumes;
 #if USE_FORWARD_PLUS
 float4 _FPParams0;
 float4 _FPParams1;
-float4 _FPParams2;
 
-#define URP_FP_ZBIN_SCALE (_FPParams0.x)
-#define URP_FP_ZBIN_OFFSET (_FPParams0.y)
-#define URP_FP_PROBES_BEGIN ((uint)_FPParams0.z)
-// Directional lights would be in all clusters, so they don't go into the cluster structure.
+// Scale from screen-space UV [0, 1] to tile coordinates [0, tile resolution].
+#define URP_FP_TILE_SCALE ((float2)_FPParams0.xy)
+#define URP_FP_TILE_COUNT_X ((uint)_FPParams0.z)
+// Directional lights would be in all tiles, so they don't go into the tile structure.
 // Instead, they are stored first in the light buffer.
 #define URP_FP_DIRECTIONAL_LIGHTS_COUNT ((uint)_FPParams0.w)
 
-// Scale from screen-space UV [0, 1] to tile coordinates [0, tile resolution].
-#define URP_FP_TILE_SCALE ((float2)_FPParams1.xy)
-#define URP_FP_TILE_COUNT_X ((uint)_FPParams1.z)
-#define URP_FP_WORDS_PER_TILE ((uint)_FPParams1.w)
-
-#define URP_FP_ZBIN_COUNT ((uint)_FPParams2.x)
-#define URP_FP_TILE_COUNT ((uint)_FPParams2.y)
+// Tile count of a single view, used to offset into the tiles of the second eye.
+#define URP_FP_TILE_COUNT ((uint)_FPParams1.x)
 
 #endif
 
@@ -180,11 +170,8 @@ CBUFFER_END
 
 #if USE_FORWARD_PLUS
 
-CBUFFER_START(urp_ZBinBuffer)
-        float4 urp_ZBins[MAX_ZBIN_VEC4S];
-CBUFFER_END
 CBUFFER_START(urp_TileBuffer)
-        float4 urp_Tiles[MAX_TILE_VEC4S];
+        uint4 urp_Tiles[MAX_TILES];
 CBUFFER_END
 
 TEXTURE2D(urp_ReflProbes_Atlas);

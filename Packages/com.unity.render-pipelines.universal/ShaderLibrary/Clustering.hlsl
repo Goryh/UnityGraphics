@@ -6,26 +6,20 @@
 #if USE_FORWARD_PLUS
 #include "Packages/com.unity.render-pipelines.core/ShaderLibrary/FoveatedRendering.hlsl"
 
-
-// Debug switches for disabling parts of the algorithm. Not implemented for mobile.
-#define URP_FP_DISABLE_ZBINNING 0
-#define URP_FP_DISABLE_TILING 0
+// Each screen tile is a single uint4 holding up to MAX_LIGHTS_PER_TILE byte-sized entries, packed from the lowest byte
+// of x upwards. An entry stores (light index + 1), where the light index is relative to the first non-directional
+// additional light. A zero byte terminates the list, and all bytes after it are zero as well.
 
 // internal
 struct ClusterIterator
 {
-    uint tileWordsOffset;
-    uint zBinWordsOffset;
-    uint tileMask;
-    // Stores the next light index in first 16 bits, and the max light index in the last 16 bits.
-    uint entityIndexNextMax;
+    // Remaining entries of the tile, the next one is always in the lowest byte of x.
+    uint4 entries;
 };
 
 // internal
-ClusterIterator ClusterInit(float2 normalizedScreenSpaceUV, float3 positionWS, int headerIndex)
+ClusterIterator ClusterInit(float2 normalizedScreenSpaceUV)
 {
-    ClusterIterator state = (ClusterIterator)0;
-
 #if defined(SUPPORTS_FOVEATED_RENDERING_NON_UNIFORM_RASTER)
     UNITY_BRANCH if (_FOVEATED_RENDERING_NON_UNIFORM_RASTER)
     {
@@ -46,92 +40,27 @@ ClusterIterator ClusterInit(float2 normalizedScreenSpaceUV, float3 positionWS, i
 #if defined(USING_STEREO_MATRICES)
     tileIndex += URP_FP_TILE_COUNT * unity_StereoEyeIndex;
 #endif
-    state.tileWordsOffset = tileIndex * URP_FP_WORDS_PER_TILE;
 
-    float viewZ = dot(GetViewForwardDir(), positionWS - GetCameraPositionWS());
-    uint zBinIndex = (uint)((IsPerspectiveProjection() ? log2(viewZ) : viewZ) * URP_FP_ZBIN_SCALE + URP_FP_ZBIN_OFFSET);
-#if defined(USING_STEREO_MATRICES)
-    zBinIndex += URP_FP_ZBIN_COUNT * unity_StereoEyeIndex;
-#endif
-    // The Zbin buffer is laid out in the following manner:
-    //                          ZBin 0                                      ZBin 1
-    //  .-------------------------^------------------------. .----------------^-------
-    // | header0 | header1 | word 1 | word 2 | ... | word N | header0 | header 1 | ...
-    //                     `----------------v--------------'
-    //                            URP_FP_WORDS_PER_TILE
-    //
-    // `zBinOffset` should always point to the `header 0` of a ZBin. In the case of
-    // 'viewZ' lying very close to the far-plane, we need to avoid out-of-bounds indexing
-    // of the ZBin buffer by clamping to the last ZBin index.
-    uint zBinLastIndex = URP_FP_ZBIN_COUNT - 1;
-#if defined(USING_STEREO_MATRICES)
-    zBinLastIndex += URP_FP_ZBIN_COUNT * unity_StereoEyeIndex;
-#endif
-    uint zBinStride = (2 + URP_FP_WORDS_PER_TILE);
-    uint zBinOffset = min(zBinIndex, zBinLastIndex) * zBinStride;
-
-    uint zBinHeaderIndex = zBinOffset + headerIndex;
-    state.zBinWordsOffset = zBinOffset + 2;
-
-#if !URP_FP_DISABLE_ZBINNING
-    uint header = Select4(asuint(urp_ZBins[zBinHeaderIndex / 4]), zBinHeaderIndex % 4);
-#else
-    uint header = headerIndex == 0 ? ((URP_FP_PROBES_BEGIN - 1) << 16) : (((URP_FP_WORDS_PER_TILE * 32 - 1) << 16) | URP_FP_PROBES_BEGIN);
-#endif
-#if MAX_LIGHTS_PER_TILE > 32 || !defined(_ENVIRONMENTREFLECTIONS_OFF)
-    state.entityIndexNextMax = header;
-#else
-    uint tileWordIndex = state.tileWordsOffset;
-    uint zBinWordIndex = state.zBinWordsOffset;
-    if (URP_FP_WORDS_PER_TILE > 0)
-    {
-        state.tileMask =
-            Select4(asuint(urp_Tiles[tileWordIndex / 4]), tileWordIndex % 4) &
-            Select4(asuint(urp_ZBins[zBinWordIndex / 4]), zBinWordIndex % 4) &
-            (0xFFFFFFFFu << (header & 0x1F)) & (0xFFFFFFFFu >> (31 - (header >> 16)));
-    }
-#endif
-
-    return state;
+    ClusterIterator it;
+    it.entries = urp_Tiles[tileIndex];
+    return it;
 }
 
 // internal
-bool ClusterNext(inout ClusterIterator it, out uint entityIndex)
+// Returns the next light index (relative to the first non-directional additional light) of the tile.
+bool ClusterNext(inout ClusterIterator it, out uint lightIndex)
 {
-#if MAX_LIGHTS_PER_TILE > 32 || !defined(_ENVIRONMENTREFLECTIONS_OFF)
-    uint maxIndex = it.entityIndexNextMax >> 16;
-    [loop] while (it.tileMask == 0 && (it.entityIndexNextMax & 0xFFFF) <= maxIndex)
-    {
-        // Extract the lower 16 bits and shift by 5 to divide by 32.
-        uint wordIndex = ((it.entityIndexNextMax & 0xFFFF) >> 5);
-        uint tileWordIndex = it.tileWordsOffset + wordIndex;
-        uint zBinWordIndex = it.zBinWordsOffset + wordIndex;
-        it.tileMask =
-#if !URP_FP_DISABLE_TILING
-            Select4(asuint(urp_Tiles[tileWordIndex / 4]), tileWordIndex % 4) &
-#endif
-#if !URP_FP_DISABLE_ZBINNING
-            Select4(asuint(urp_ZBins[zBinWordIndex / 4]), zBinWordIndex % 4) &
-#endif
-            // Mask out the beginning and end of the word.
-            (0xFFFFFFFFu << (it.entityIndexNextMax & 0x1F)) & (0xFFFFFFFFu >> (31 - min(31, maxIndex - wordIndex * 32)));
-        // The light index can start at a non-multiple of 32, but the following iterations should always be multiples of 32.
-        // So we add 32 and mask out the lower bits.
-        it.entityIndexNextMax = (it.entityIndexNextMax + 32) & ~31;
-    }
-#endif
-    bool hasNext = it.tileMask != 0;
-    uint bitIndex = FIRST_BIT_LOW(it.tileMask);
-    it.tileMask ^= (1 << bitIndex);
-#if MAX_LIGHTS_PER_TILE > 32 || !defined(_ENVIRONMENTREFLECTIONS_OFF)
-    // Subtract 32 because it stores the index of the _next_ word to fetch, but we want the current.
-    // The upper 16 bits and bits representing values < 32 are masked out. The latter is due to the fact that it will be
-    // included in what FIRST_BIT_LOW returns.
-    entityIndex = (((it.entityIndexNextMax - 32) & (0xFFFF & ~31))) + bitIndex;
-#else
-    entityIndex = bitIndex;
-#endif
-    return hasNext;
+    uint entry = it.entries.x & 0xFF;
+    lightIndex = entry - 1;
+
+    // Shift the whole 128-bit entry list down by one byte.
+    it.entries = uint4(
+        (it.entries.x >> 8) | (it.entries.y << 24),
+        (it.entries.y >> 8) | (it.entries.z << 24),
+        (it.entries.z >> 8) | (it.entries.w << 24),
+        (it.entries.w >> 8));
+
+    return entry != 0;
 }
 
 #endif

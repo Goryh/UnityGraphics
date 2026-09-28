@@ -58,18 +58,12 @@ namespace UnityEngine.Rendering.Universal.Internal
         int2 m_TileResolution;
 
         JobHandle m_CullingHandle;
-        NativeArray<uint> m_ZBins;
-        GraphicsBuffer m_ZBinsBuffer;
-        NativeArray<uint> m_TileMasks;
-        GraphicsBuffer m_TileMasksBuffer;
+        NativeArray<uint> m_TileLightIndices;
+        GraphicsBuffer m_TileBuffer;
+        int m_UsedTileWords;
 
         LightCookieManager m_LightCookieManager;
         ReflectionProbeManager m_ReflectionProbeManager;
-        int m_WordsPerTile;
-        float m_ZBinScale;
-        float m_ZBinOffset;
-        int m_LightCount;
-        int m_BinCount;
 
         internal struct InitParams
         {
@@ -145,12 +139,9 @@ namespace UnityEngine.Rendering.Universal.Internal
 
         void CreateForwardPlusBuffers()
         {
-            m_ZBins = new NativeArray<uint>(UniversalRenderPipeline.maxZBinWords, Allocator.Persistent);
-            m_ZBinsBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Constant, UniversalRenderPipeline.maxZBinWords / 4, UnsafeUtility.SizeOf<float4>());
-            m_ZBinsBuffer.name = "URP Z-Bin Buffer";
-            m_TileMasks = new NativeArray<uint>(UniversalRenderPipeline.maxTileWords, Allocator.Persistent);
-            m_TileMasksBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Constant, UniversalRenderPipeline.maxTileWords / 4, UnsafeUtility.SizeOf<float4>());
-            m_TileMasksBuffer.name = "URP Tile Buffer";
+            m_TileLightIndices = new NativeArray<uint>(UniversalRenderPipeline.maxTiles * TileRangeExpansionJob.wordsPerTile, Allocator.Persistent);
+            m_TileBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Constant, UniversalRenderPipeline.maxTiles, UnsafeUtility.SizeOf<uint4>());
+            m_TileBuffer.name = "URP Tile Buffer";
         }
 
         internal ReflectionProbeManager reflectionProbeManager => m_ReflectionProbeManager;
@@ -174,7 +165,7 @@ namespace UnityEngine.Rendering.Universal.Internal
             );
         }
 
-        internal void PreSetup(UniversalRenderingData renderingData, UniversalCameraData cameraData, UniversalLightData lightData)
+        internal void PreSetup(UniversalCameraData cameraData, UniversalLightData lightData)
         {
             if (m_UseForwardPlus)
             {
@@ -183,23 +174,6 @@ namespace UnityEngine.Rendering.Universal.Internal
                 if (!m_CullingHandle.IsCompleted)
                 {
                     throw new InvalidOperationException("Forward+ jobs have not completed yet.");
-                }
-
-                if (m_TileMasks.Length != UniversalRenderPipeline.maxTileWords)
-                {
-                    m_ZBins.Dispose();
-                    m_ZBinsBuffer.Dispose();
-                    m_TileMasks.Dispose();
-                    m_TileMasksBuffer.Dispose();
-                    CreateForwardPlusBuffers();
-                }
-                else
-                {
-                    unsafe
-                    {
-                        UnsafeUtility.MemClear(m_ZBins.GetUnsafePtr(), m_ZBins.Length * sizeof(uint));
-                        UnsafeUtility.MemClear(m_TileMasks.GetUnsafePtr(), m_TileMasks.Length * sizeof(uint));
-                    }
                 }
 
                 var camera = cameraData.camera;
@@ -211,123 +185,57 @@ namespace UnityEngine.Rendering.Universal.Internal
                 var viewCount = 1;
 #endif
 
-                m_LightCount = lightData.visibleLights.Length;
+                var lightCount = lightData.visibleLights.Length;
                 var lightOffset = 0;
-                while (lightOffset < m_LightCount && lightData.visibleLights[lightOffset].lightType == LightType.Directional)
+                while (lightOffset < lightCount && lightData.visibleLights[lightOffset].lightType == LightType.Directional)
                 {
                     lightOffset++;
                 }
-                m_LightCount -= lightOffset;
+                lightCount -= lightOffset;
 
                 m_DirectionalLightCount = lightOffset;
                 if (lightData.mainLightIndex != -1 && m_DirectionalLightCount != 0) m_DirectionalLightCount -= 1;
 
-                var visibleLights = lightData.visibleLights.GetSubArray(lightOffset, m_LightCount);
-                var reflectionProbes = renderingData.cullResults.visibleReflectionProbes;
-                var reflectionProbeCount = math.min(reflectionProbes.Length, UniversalRenderPipeline.maxVisibleReflectionProbes);
-                var itemsPerTile = visibleLights.Length + reflectionProbeCount;
-                m_WordsPerTile = (itemsPerTile + 31) / 32;
+                // Light indices are stored as (index + 1) in a byte, 0 is reserved for "no light".
+                lightCount = math.min(lightCount, UniversalRenderPipeline.maxForwardPlusLights);
+                var visibleLights = lightData.visibleLights.GetSubArray(lightOffset, lightCount);
 
-                m_ActualTileWidth = 8 >> 1;
+                // Grow the tile size in steps of 16 pixels until all tiles fit into the tile buffer.
+                m_ActualTileWidth = 0;
                 do
                 {
-                    m_ActualTileWidth <<= 1;
+                    m_ActualTileWidth += 16;
                     m_TileResolution = (screenResolution + m_ActualTileWidth - 1) / m_ActualTileWidth;
                 }
-                while ((m_TileResolution.x * m_TileResolution.y * m_WordsPerTile * viewCount) > UniversalRenderPipeline.maxTileWords);
+                while (m_TileResolution.x * m_TileResolution.y * viewCount > UniversalRenderPipeline.maxTiles);
 
-                if (!camera.orthographic)
+                m_UsedTileWords = m_TileResolution.x * m_TileResolution.y * viewCount * TileRangeExpansionJob.wordsPerTile;
+                unsafe
                 {
-                    // Use to calculate binIndex = log2(z) * zBinScale + zBinOffset
-                    m_ZBinScale = (UniversalRenderPipeline.maxZBinWords / viewCount) / ((math.log2(camera.farClipPlane) - math.log2(camera.nearClipPlane)) * (2 + m_WordsPerTile));
-                    m_ZBinOffset = -math.log2(camera.nearClipPlane) * m_ZBinScale;
-                    m_BinCount = (int)(math.log2(camera.farClipPlane) * m_ZBinScale + m_ZBinOffset);
-                }
-                else
-                {
-                    // Use to calculate binIndex = z * zBinScale + zBinOffset
-                    m_ZBinScale = (UniversalRenderPipeline.maxZBinWords / viewCount) / ((camera.farClipPlane - camera.nearClipPlane) * (2 + m_WordsPerTile));
-                    m_ZBinOffset = -camera.nearClipPlane * m_ZBinScale;
-                    m_BinCount = (int)(camera.farClipPlane * m_ZBinScale + m_ZBinOffset);
+                    UnsafeUtility.MemClear(m_TileLightIndices.GetUnsafePtr(), m_UsedTileWords * sizeof(uint));
                 }
 
-                // Necessary to avoid negative bin count when the farClipPlane is set to Infinity in the editor.
-                m_BinCount = Math.Max(m_BinCount, 0);
+                if (lightCount == 0)
+                {
+                    m_CullingHandle = default;
+                    return;
+                }
 
                 var worldToViews = new Fixed2<float4x4>(cameraData.GetViewMatrix(0), cameraData.GetViewMatrix(math.min(1, viewCount - 1)));
                 var viewToClips = new Fixed2<float4x4>(cameraData.GetProjectionMatrix(0), cameraData.GetProjectionMatrix(math.min(1, viewCount - 1)));
-
-                // Should probe come after otherProbe?
-                static bool IsProbeGreater(VisibleReflectionProbe probe, VisibleReflectionProbe otherProbe)
-                {
-                    return probe.importance < otherProbe.importance ||
-                        (probe.importance == otherProbe.importance && probe.bounds.extents.sqrMagnitude > otherProbe.bounds.extents.sqrMagnitude);
-                }
-
-                for (var i = 1; i < reflectionProbeCount; i++)
-                {
-                    var probe = reflectionProbes[i];
-                    var j = i - 1;
-                    while (j >= 0 && IsProbeGreater(reflectionProbes[j], probe))
-                    {
-                        reflectionProbes[j + 1] = reflectionProbes[j];
-                        j--;
-                    }
-
-                    reflectionProbes[j + 1] = probe;
-                }
-
-                var minMaxZs = new NativeArray<float2>(itemsPerTile * viewCount, Allocator.TempJob);
-
-                var lightMinMaxZJob = new LightMinMaxZJob
-                {
-                    worldToViews = worldToViews,
-                    lights = visibleLights,
-                    minMaxZs = minMaxZs.GetSubArray(0, m_LightCount * viewCount)
-                };
-                // Innerloop batch count of 32 is not special, just a handwavy amount to not have too much scheduling overhead nor too little parallelism.
-                var lightMinMaxZHandle = lightMinMaxZJob.ScheduleParallel(m_LightCount * viewCount, 32, new JobHandle());
-
-                var reflectionProbeMinMaxZJob = new ReflectionProbeMinMaxZJob
-                {
-                    worldToViews = worldToViews,
-                    reflectionProbes = reflectionProbes,
-                    minMaxZs = minMaxZs.GetSubArray(m_LightCount * viewCount, reflectionProbeCount * viewCount)
-                };
-                var reflectionProbeMinMaxZHandle = reflectionProbeMinMaxZJob.ScheduleParallel(reflectionProbeCount * viewCount, 32, lightMinMaxZHandle);
-
-                var zBinningBatchCount = (m_BinCount + ZBinningJob.batchSize - 1) / ZBinningJob.batchSize;
-                var zBinningJob = new ZBinningJob
-                {
-                    bins = m_ZBins,
-                    minMaxZs = minMaxZs,
-                    zBinScale = m_ZBinScale,
-                    zBinOffset = m_ZBinOffset,
-                    binCount = m_BinCount,
-                    wordsPerTile = m_WordsPerTile,
-                    lightCount = m_LightCount,
-                    reflectionProbeCount = reflectionProbeCount,
-                    batchCount = zBinningBatchCount,
-                    viewCount = viewCount,
-                    isOrthographic = camera.orthographic
-                };
-                var zBinningHandle = zBinningJob.ScheduleParallel(zBinningBatchCount * viewCount, 1, reflectionProbeMinMaxZHandle);
-
-                reflectionProbeMinMaxZHandle.Complete();
 
                 GetViewParams(camera, viewToClips[0], out float viewPlaneBottom0, out float viewPlaneTop0, out float4 viewToViewportScaleBias0);
                 GetViewParams(camera, viewToClips[1], out float viewPlaneBottom1, out float viewPlaneTop1, out float4 viewToViewportScaleBias1);
 
                 // Each light needs 1 range for Y, and a range per row. Align to 128-bytes to avoid false sharing.
-                var rangesPerItem = AlignByteCount((1 + m_TileResolution.y) * UnsafeUtility.SizeOf<InclusiveRange>(), 128) / UnsafeUtility.SizeOf<InclusiveRange>();
-                var tileRanges = new NativeArray<InclusiveRange>(rangesPerItem * itemsPerTile * viewCount, Allocator.TempJob);
+                var rangesPerLight = AlignByteCount((1 + m_TileResolution.y) * UnsafeUtility.SizeOf<InclusiveRange>(), 128) / UnsafeUtility.SizeOf<InclusiveRange>();
+                var tileRanges = new NativeArray<InclusiveRange>(rangesPerLight * lightCount * viewCount, Allocator.TempJob);
                 var tilingJob = new TilingJob
                 {
                     lights = visibleLights,
-                    reflectionProbes = reflectionProbes,
                     tileRanges = tileRanges,
-                    itemsPerTile = itemsPerTile,
-                    rangesPerItem = rangesPerItem,
+                    lightCount = lightCount,
+                    rangesPerLight = rangesPerLight,
                     worldToViews = worldToViews,
                     tileScale = (float2)screenResolution / m_ActualTileWidth,
                     tileScaleInv = m_ActualTileWidth / (float2)screenResolution,
@@ -339,22 +247,19 @@ namespace UnityEngine.Rendering.Universal.Internal
                     isOrthographic = camera.orthographic
                 };
 
-                var tileRangeHandle = tilingJob.ScheduleParallel(itemsPerTile * viewCount, 1, reflectionProbeMinMaxZHandle);
+                var tileRangeHandle = tilingJob.ScheduleParallel(lightCount * viewCount, 1, default);
 
                 var expansionJob = new TileRangeExpansionJob
                 {
                     tileRanges = tileRanges,
-                    tileMasks = m_TileMasks,
-                    rangesPerItem = rangesPerItem,
-                    itemsPerTile = itemsPerTile,
-                    wordsPerTile = m_WordsPerTile,
+                    tileLightIndices = m_TileLightIndices,
+                    rangesPerLight = rangesPerLight,
+                    lightCount = lightCount,
                     tileResolution = m_TileResolution,
                 };
 
                 var tilingHandle = expansionJob.ScheduleParallel(m_TileResolution.y * viewCount, 1, tileRangeHandle);
-                m_CullingHandle = JobHandle.CombineDependencies(
-                    minMaxZs.Dispose(zBinningHandle),
-                    tileRanges.Dispose(tilingHandle));
+                m_CullingHandle = tileRanges.Dispose(tilingHandle);
 
                 JobHandle.ScheduleBatchedJobs();
             }
@@ -422,15 +327,14 @@ namespace UnityEngine.Rendering.Universal.Internal
 
                     using (new ProfilingScope(m_ProfilingSamplerFPUpload))
                     {
-                        m_ZBinsBuffer.SetData(m_ZBins.Reinterpret<float4>(UnsafeUtility.SizeOf<uint>()));
-                        m_TileMasksBuffer.SetData(m_TileMasks.Reinterpret<float4>(UnsafeUtility.SizeOf<uint>()));
-                        cmd.SetGlobalConstantBuffer(m_ZBinsBuffer, "urp_ZBinBuffer", 0, UniversalRenderPipeline.maxZBinWords * 4);
-                        cmd.SetGlobalConstantBuffer(m_TileMasksBuffer, "urp_TileBuffer", 0, UniversalRenderPipeline.maxTileWords * 4);
+                        // Only the tiles in use are uploaded, the shader never reads past them.
+                        var usedTiles = m_UsedTileWords / TileRangeExpansionJob.wordsPerTile;
+                        m_TileBuffer.SetData(m_TileLightIndices.Reinterpret<uint4>(UnsafeUtility.SizeOf<uint>()), 0, 0, usedTiles);
+                        cmd.SetGlobalConstantBuffer(m_TileBuffer, "urp_TileBuffer", 0, UniversalRenderPipeline.maxTiles * UnsafeUtility.SizeOf<uint4>());
                     }
 
-                    cmd.SetGlobalVector("_FPParams0", math.float4(m_ZBinScale, m_ZBinOffset, m_LightCount, m_DirectionalLightCount));
-                    cmd.SetGlobalVector("_FPParams1", math.float4(cameraData.pixelRect.size / m_ActualTileWidth, m_TileResolution.x, m_WordsPerTile));
-                    cmd.SetGlobalVector("_FPParams2", math.float4(m_BinCount, m_TileResolution.x * m_TileResolution.y, 0, 0));
+                    cmd.SetGlobalVector("_FPParams0", math.float4(cameraData.pixelRect.size / m_ActualTileWidth, m_TileResolution.x, m_DirectionalLightCount));
+                    cmd.SetGlobalVector("_FPParams1", math.float4(m_TileResolution.x * m_TileResolution.y, 0, 0, 0));
                 }
 
                 SetupShaderLightConstants(cmd, ref renderingData.cullResults, lightData);
@@ -488,12 +392,9 @@ namespace UnityEngine.Rendering.Universal.Internal
             if (m_UseForwardPlus)
             {
                 m_CullingHandle.Complete();
-                m_ZBins.Dispose();
-                m_TileMasks.Dispose();
-                m_ZBinsBuffer.Dispose();
-                m_ZBinsBuffer = null;
-                m_TileMasksBuffer.Dispose();
-                m_TileMasksBuffer = null;
+                m_TileLightIndices.Dispose();
+                m_TileBuffer.Dispose();
+                m_TileBuffer = null;
                 m_ReflectionProbeManager.Dispose();
             }
             m_LightCookieManager?.Dispose();

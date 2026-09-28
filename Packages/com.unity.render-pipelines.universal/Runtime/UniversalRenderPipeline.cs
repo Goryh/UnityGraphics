@@ -152,9 +152,10 @@ namespace UnityEngine.Rendering.Universal
         }
 
         // Match with values in Input.hlsl
-        internal static int lightsPerTile => ((maxVisibleAdditionalLights + 31) / 32) * 32;
-        internal static int maxZBinWords => 1024 * 4;
-        internal static int maxTileWords => (maxVisibleAdditionalLights <= 32 ? 1024 : 4096) * 4;
+        // Forward+ tile buffer: each tile is one uint4 holding up to 16 byte-sized light indices (light index + 1, 0 = no light).
+        internal const int maxLightsPerTile = 16;
+        internal const int maxTiles = 4096;
+        internal const int maxForwardPlusLights = 255;
         internal static int maxVisibleReflectionProbes => Math.Min(maxVisibleAdditionalLights, 64);
 
         internal const int k_DefaultRenderingLayerMask = 0x00000001;

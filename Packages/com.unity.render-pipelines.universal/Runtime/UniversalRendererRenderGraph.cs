@@ -1037,7 +1037,7 @@ namespace UnityEngine.Rendering.Universal
             UniversalLightData lightData = frameData.Get<UniversalLightData>();
             UniversalShadowData shadowData = frameData.Get<UniversalShadowData>();
 
-            m_ForwardLights.PreSetup(renderingData, cameraData, lightData);
+            m_ForwardLights.PreSetup(cameraData, lightData);
 
             RecordCustomRenderGraphPasses(renderGraph, RenderPassEvent.BeforeRenderingShadows);
 

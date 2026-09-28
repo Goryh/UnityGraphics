@@ -250,36 +250,8 @@ half3 CalculateIrradianceFromReflectionProbes(half3 reflectVector, float3 positi
     half3 irradiance = half3(0.0h, 0.0h, 0.0h);
     half mip = PerceptualRoughnessToMipmapLevel(perceptualRoughness);
 #if USE_FORWARD_PLUS
+    // Forward+ tiles only hold lights, reflection probes are not binned. Fall back to the environment reflection.
     float totalWeight = 0.0f;
-    uint probeIndex;
-    ClusterIterator it = ClusterInit(normalizedScreenSpaceUV, positionWS, 1);
-    [loop] while (ClusterNext(it, probeIndex) && totalWeight < 0.99f)
-    {
-        probeIndex -= URP_FP_PROBES_BEGIN;
-
-        float weight = CalculateProbeWeight(positionWS, urp_ReflProbes_BoxMin[probeIndex], urp_ReflProbes_BoxMax[probeIndex]);
-        weight = min(weight, 1.0f - totalWeight);
-
-        half3 sampleVector = reflectVector;
-#ifdef _REFLECTION_PROBE_BOX_PROJECTION
-        sampleVector = BoxProjectedCubemapDirection(reflectVector, positionWS, urp_ReflProbes_ProbePosition[probeIndex], urp_ReflProbes_BoxMin[probeIndex], urp_ReflProbes_BoxMax[probeIndex]);
-#endif // _REFLECTION_PROBE_BOX_PROJECTION
-
-        uint maxMip = (uint)abs(urp_ReflProbes_ProbePosition[probeIndex].w) - 1;
-        half probeMip = min(mip, maxMip);
-        float2 uv = saturate(PackNormalOctQuadEncode(sampleVector) * 0.5 + 0.5);
-
-        float mip0 = floor(probeMip);
-        float mip1 = mip0 + 1;
-        float mipBlend = probeMip - mip0;
-        float4 scaleOffset0 = urp_ReflProbes_MipScaleOffset[probeIndex * 7 + (uint)mip0];
-        float4 scaleOffset1 = urp_ReflProbes_MipScaleOffset[probeIndex * 7 + (uint)mip1];
-
-        half3 irradiance0 = half4(SAMPLE_TEXTURE2D_LOD(urp_ReflProbes_Atlas, sampler_LinearClamp, uv * scaleOffset0.xy + scaleOffset0.zw, 0.0)).rgb;
-        half3 irradiance1 = half4(SAMPLE_TEXTURE2D_LOD(urp_ReflProbes_Atlas, sampler_LinearClamp, uv * scaleOffset1.xy + scaleOffset1.zw, 0.0)).rgb;
-        irradiance += weight * lerp(irradiance0, irradiance1, mipBlend);
-        totalWeight += weight;
-    }
 #else
     half probe0Volume = CalculateProbeVolumeSqrMagnitude(unity_SpecCube0_BoxMin, unity_SpecCube0_BoxMax);
     half probe1Volume = CalculateProbeVolumeSqrMagnitude(unity_SpecCube1_BoxMin, unity_SpecCube1_BoxMax);
