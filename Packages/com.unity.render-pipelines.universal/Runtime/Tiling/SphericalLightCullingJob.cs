@@ -20,9 +20,7 @@ namespace UnityEngine.Rendering.Universal
             public int CompareTo(SortEntry other) => distance.CompareTo(other.distance);
         }
 
-        [ReadOnly] public NativeArray<float4> positionRanges;
-        [ReadOnly] public NativeArray<float4> colorAreaRadii;
-        [ReadOnly] public NativeArray<uint> exclusionMasks;
+        [ReadOnly] public NativeArray<SphericalLightData> lights;
         public int lightCount;
 
         // 6 planes per view, xyz: normal pointing inside, w: distance.
@@ -32,9 +30,7 @@ namespace UnityEngine.Rendering.Universal
 
         public NativeArray<SortEntry> sortEntries;
 
-        // Laid out as [positions | colors | exclusion masks], each section `lightDataStride` entries long.
-        public NativeArray<float4> lightData;
-        public int lightDataStride;
+        public NativeArray<SphericalLightData> visibleLights;
         public int maxVisibleCount;
         public NativeArray<int> visibleCount;
 
@@ -43,7 +39,7 @@ namespace UnityEngine.Rendering.Universal
             int count = 0;
             for (int i = 0; i < lightCount; i++)
             {
-                float4 positionRange = positionRanges[i];
+                float4 positionRange = lights[i].positionRange;
                 if (IsVisible(positionRange))
                 {
                     float distance = math.distance(positionRange.xyz, cameraPosition) - positionRange.w;
@@ -56,12 +52,7 @@ namespace UnityEngine.Rendering.Universal
 
             count = math.min(count, maxVisibleCount);
             for (int i = 0; i < count; i++)
-            {
-                int index = visible[i].index;
-                lightData[i] = positionRanges[index];
-                lightData[lightDataStride + i] = colorAreaRadii[index];
-                lightData[2 * lightDataStride + i] = new float4(math.asfloat(exclusionMasks[index]), 0.0f, 0.0f, 0.0f);
-            }
+                visibleLights[i] = lights[visible[i].index];
 
             visibleCount[0] = count;
         }

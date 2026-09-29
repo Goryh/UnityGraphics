@@ -8,9 +8,8 @@ namespace UnityEngine.Rendering.Universal
     [BurstCompile(FloatMode = FloatMode.Default, DisableSafetyChecks = true, OptimizeFor = OptimizeFor.Performance)]
     struct TilingJob : IJobFor
     {
-        // xyz: world position, w: range
         [ReadOnly]
-        public NativeArray<float4> lightPositionRanges;
+        public NativeArray<SphericalLightData> lights;
 
         [NativeDisableParallelForRestriction]
         public NativeArray<InclusiveRange> tileRanges;
@@ -52,7 +51,7 @@ namespace UnityEngine.Rendering.Universal
 
         void TileLight(int lightIndex)
         {
-            var positionRange = lightPositionRanges[lightIndex];
+            var positionRange = lights[lightIndex].positionRange;
             var lightPositionVS = math.mul(worldToViews[m_ViewIndex], math.float4(positionRange.xyz, 1)).xyz;
             lightPositionVS.z *= -1;
             if (lightPositionVS.z >= near) ExpandY(lightPositionVS);
@@ -103,7 +102,7 @@ namespace UnityEngine.Rendering.Universal
 
         void TileLightOrthographic(int lightIndex)
         {
-            var positionRange = lightPositionRanges[lightIndex];
+            var positionRange = lights[lightIndex].positionRange;
             var lightPosVS = math.mul(worldToViews[m_ViewIndex], math.float4(positionRange.xyz, 1)).xyz;
             lightPosVS.z *= -1;
             ExpandOrthographic(lightPosVS);

@@ -142,20 +142,28 @@ Light GetMainLight(InputData inputData, half4 shadowMask, AmbientOcclusionFactor
 // Internal radius of the emitting sphere of a spherical light (SphericalLight.areaRadius).
 half GetAdditionalLightAreaRadius(int perObjectLightIndex)
 {
-    return _AdditionalLightsColor[perObjectLightIndex].a;
+    return half(f16tof32(asuint(ADDITIONAL_LIGHT_COLOR_PACKED(perObjectLightIndex).a)));
 }
 
-// SphericalLight.exclusionMask.
+// SphericalLight.exclusionMask, 16 bits.
 uint GetAdditionalLightExclusionMask(int perObjectLightIndex)
 {
-    return _AdditionalLightsExclusionMask[perObjectLightIndex];
+    return asuint(ADDITIONAL_LIGHT_COLOR_PACKED(perObjectLightIndex).a) >> 16;
+}
+
+// Returns true if the light's exclusion mask shares any bit with objectMaskHigh, which is the object's 16 bit mask
+// shifted left by 16. Shift it once outside the light loop: the test is then a single AND per light, and it only
+// loads the packed word, so an excluded light can be skipped before its position and color are read.
+bool IsAdditionalLightExcluded(int perObjectLightIndex, uint objectMaskHigh)
+{
+    return (asuint(ADDITIONAL_LIGHT_COLOR_PACKED(perObjectLightIndex).a) & objectMaskHigh) != 0;
 }
 
 // Fills a light struct given a perObjectLightIndex. Additional lights are always spherical lights, lit like point lights.
 Light GetAdditionalPerObjectLight(int perObjectLightIndex, float3 positionWS)
 {
-    float4 lightPositionWS = _AdditionalLightsPosition[perObjectLightIndex]; // w: range
-    half3 color = _AdditionalLightsColor[perObjectLightIndex].rgb;
+    float4 lightPositionWS = ADDITIONAL_LIGHT_POSITION_RANGE(perObjectLightIndex); // w: range
+    half3 color = half3(ADDITIONAL_LIGHT_COLOR_PACKED(perObjectLightIndex).rgb);
 
     float3 lightVector = lightPositionWS.xyz - positionWS;
     float distanceSqr = max(dot(lightVector, lightVector), HALF_MIN);

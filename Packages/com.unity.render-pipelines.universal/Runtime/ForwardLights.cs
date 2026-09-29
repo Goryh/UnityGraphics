@@ -44,12 +44,10 @@ namespace UnityEngine.Rendering.Universal.Internal
         GraphicsBuffer m_TileBuffer;
         int m_UsedTileWords;
 
-        // Additional lights are the visible SphericalLights, in the layout of the AdditionalLights constant buffer:
-        // [_AdditionalLightsPosition | _AdditionalLightsColor | _AdditionalLightsExclusionMask], each section
-        // m_LightDataStride entries long. Their order defines the additional light index used by the shaders.
-        NativeArray<float4> m_LightData;
+        // Additional lights are the visible SphericalLights, in the layout of the AdditionalLights constant buffer.
+        // Their order defines the additional light index used by the shaders.
+        NativeArray<SphericalLightData> m_LightData;
         GraphicsBuffer m_LightDataBuffer;
-        int m_LightDataStride;
         int m_VisibleLightCount;
 
         LightCookieManager m_LightCookieManager;
@@ -110,10 +108,10 @@ namespace UnityEngine.Rendering.Universal.Internal
             m_TileBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Constant, UniversalRenderPipeline.maxTiles, UnsafeUtility.SizeOf<uint4>());
             m_TileBuffer.name = "URP Tile Buffer";
 
-            // Must match MAX_VISIBLE_LIGHTS, which sizes the arrays of the AdditionalLights constant buffer.
-            m_LightDataStride = UniversalRenderPipeline.maxVisibleAdditionalLights;
-            m_LightData = new NativeArray<float4>(3 * m_LightDataStride, Allocator.Persistent);
-            m_LightDataBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Constant, 3 * m_LightDataStride, UnsafeUtility.SizeOf<float4>());
+            // Must match MAX_VISIBLE_LIGHTS, which sizes the AdditionalLights constant buffer.
+            int maxLights = UniversalRenderPipeline.maxVisibleAdditionalLights;
+            m_LightData = new NativeArray<SphericalLightData>(maxLights, Allocator.Persistent);
+            m_LightDataBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Constant, maxLights, UnsafeUtility.SizeOf<SphericalLightData>());
             m_LightDataBuffer.name = "URP Additional Lights Buffer";
         }
 
@@ -155,18 +153,15 @@ namespace UnityEngine.Rendering.Universal.Internal
             // Runs synchronously, so the registry can be modified freely afterwards.
             new SphericalLightCullingJob
             {
-                positionRanges = SphericalLightRegistry.positionRanges,
-                colorAreaRadii = SphericalLightRegistry.colorAreaRadii,
-                exclusionMasks = SphericalLightRegistry.exclusionMasks,
+                lights = SphericalLightRegistry.data,
                 lightCount = registeredCount,
                 frustumPlanes = frustumPlanes,
                 viewCount = viewCount,
                 cameraPosition = cameraPosition,
                 sortEntries = sortEntries,
-                lightData = m_LightData,
-                lightDataStride = m_LightDataStride,
+                visibleLights = m_LightData,
                 // Forward+ stores light indices as (index + 1) in a byte, 0 is reserved for "no light".
-                maxVisibleCount = math.min(m_LightDataStride, UniversalRenderPipeline.maxForwardPlusLights),
+                maxVisibleCount = math.min(m_LightData.Length, UniversalRenderPipeline.maxForwardPlusLights),
                 visibleCount = visibleCount,
             }.Run();
 
@@ -233,7 +228,7 @@ namespace UnityEngine.Rendering.Universal.Internal
                 var tileRanges = new NativeArray<InclusiveRange>(rangesPerLight * lightCount * viewCount, Allocator.TempJob);
                 var tilingJob = new TilingJob
                 {
-                    lightPositionRanges = m_LightData.GetSubArray(0, lightCount),
+                    lights = m_LightData.GetSubArray(0, lightCount),
                     tileRanges = tileRanges,
                     lightCount = lightCount,
                     rangesPerLight = rangesPerLight,
@@ -331,17 +326,11 @@ namespace UnityEngine.Rendering.Universal.Internal
                         m_TileBuffer.SetData(m_TileLightIndices.Reinterpret<uint4>(UnsafeUtility.SizeOf<uint>()), 0, 0, usedTiles);
                         cmd.SetGlobalConstantBuffer(m_TileBuffer, "urp_TileBuffer", 0, UniversalRenderPipeline.maxTiles * UnsafeUtility.SizeOf<uint4>());
 
-                        // Only the visible lights of each array section are uploaded, the shader never reads past them.
+                        // Only the visible lights are uploaded, the shader never reads past them.
                         int visibleLightCount = m_VisibleLightCount;
                         if (visibleLightCount > 0)
-                        {
-                            for (int section = 0; section < 3; section++)
-                            {
-                                int start = section * m_LightDataStride;
-                                m_LightDataBuffer.SetData(m_LightData, start, start, visibleLightCount);
-                            }
-                        }
-                        cmd.SetGlobalConstantBuffer(m_LightDataBuffer, LightConstantBuffer.AdditionalLights, 0, 3 * m_LightDataStride * UnsafeUtility.SizeOf<float4>());
+                            m_LightDataBuffer.SetData(m_LightData, 0, 0, visibleLightCount);
+                        cmd.SetGlobalConstantBuffer(m_LightDataBuffer, LightConstantBuffer.AdditionalLights, 0, m_LightData.Length * UnsafeUtility.SizeOf<SphericalLightData>());
                         cmd.SetGlobalVector(LightConstantBuffer._AdditionalLightsCount, new Vector4(visibleLightCount, 0.0f, 0.0f, 0.0f));
                     }
 

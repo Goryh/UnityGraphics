@@ -15,7 +15,7 @@ namespace UnityEngine.Rendering.Universal
         [SerializeField, Min(0.0f)] float m_Intensity = 1.0f;
         [SerializeField, Min(0.0f)] float m_Range = 10.0f;
         [SerializeField, Min(0.01f)] float m_AreaRadius = 0.01f;
-        [SerializeField] uint m_ExclusionMask = 0;
+        [SerializeField] ushort m_ExclusionMask = 0;
 
         // Index into SphericalLightRegistry, -1 when the light is not registered.
         [System.NonSerialized] internal int registryIndex = -1;
@@ -57,9 +57,9 @@ namespace UnityEngine.Rendering.Universal
         }
 
         /// <summary>
-        /// Bit mask passed to shaders, read with GetAdditionalLightExclusionMask().
+        /// 16 bit mask passed to shaders, read with GetAdditionalLightExclusionMask().
         /// </summary>
-        public uint exclusionMask
+        public ushort exclusionMask
         {
             get => m_ExclusionMask;
             set => m_ExclusionMask = value;

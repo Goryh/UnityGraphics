@@ -142,12 +142,17 @@ float4 _FPParams1;
 
 // Additional lights are the visible SphericalLights. Unity lights other than the main light are not uploaded.
 // The buffer is bound from C# (ForwardLights.m_LightDataBuffer), so it must stay a constant buffer and its layout
-// must match: MAX_VISIBLE_LIGHTS entries of 16 bytes per array.
+// must match SphericalLightData: two float4 per light, interleaved.
+//   [2 * i]     xyz: position, w: range (external radius)
+//   [2 * i + 1] rgb: color, a: bits of the area radius (internal radius) as a half in the low 16 bits and the exclusion
+//               mask in the high 16 bits. Declared float so the packed bits are loaded untouched; read them with
+//               GetAdditionalLightAreaRadius(), GetAdditionalLightExclusionMask() or IsAdditionalLightExcluded().
 CBUFFER_START(AdditionalLights)
-float4 _AdditionalLightsPosition[MAX_VISIBLE_LIGHTS];   // xyz: position, w: range (external radius)
-half4 _AdditionalLightsColor[MAX_VISIBLE_LIGHTS];       // rgb: color, a: area radius (internal radius). Read it with GetAdditionalLightAreaRadius().
-uint _AdditionalLightsExclusionMask[MAX_VISIBLE_LIGHTS]; // Read it with GetAdditionalLightExclusionMask().
+float4 _AdditionalLightsData[2 * MAX_VISIBLE_LIGHTS];
 CBUFFER_END
+
+#define ADDITIONAL_LIGHT_POSITION_RANGE(lightIndex) _AdditionalLightsData[2 * (lightIndex)]
+#define ADDITIONAL_LIGHT_COLOR_PACKED(lightIndex) _AdditionalLightsData[2 * (lightIndex) + 1]
 
 #if USE_FORWARD_PLUS
 
