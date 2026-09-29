@@ -51,14 +51,14 @@ float DistanceAttenuation(float distanceSqr, half2 distanceAttenuation)
     return lightAtten * smoothFactor;
 }
 
-// Distance attenuation of a point light with the given radius (range).
-// Matches DistanceAttenuation() with distanceAttenuation.x = 1 / radius^2.
-float PointLightDistanceAttenuation(float distanceSqr, float radius)
+// Distance attenuation of a point light, given 1 / range^2.
+// Matches DistanceAttenuation() with distanceAttenuation.x = invRangeSq.
+float PointLightDistanceAttenuation(float distanceSqr, float invRangeSq)
 {
     float lightAtten = rcp(distanceSqr);
 
     // Use the smoothing factor also used in the Unity lightmapper.
-    half factor = half(distanceSqr * rcp(radius * radius));
+    half factor = half(distanceSqr * invRangeSq);
     half smoothFactor = saturate(half(1.0) - factor * factor);
     smoothFactor = smoothFactor * smoothFactor;
 
@@ -151,18 +151,10 @@ uint GetAdditionalLightExclusionMask(int perObjectLightIndex)
     return asuint(ADDITIONAL_LIGHT_COLOR_PACKED(perObjectLightIndex).a) >> 16;
 }
 
-// Returns true if the light's exclusion mask shares any bit with objectMaskHigh, which is the object's 16 bit mask
-// shifted left by 16. Shift it once outside the light loop: the test is then a single AND per light, and it only
-// loads the packed word, so an excluded light can be skipped before its position and color are read.
-bool IsAdditionalLightExcluded(int perObjectLightIndex, uint objectMaskHigh)
-{
-    return (asuint(ADDITIONAL_LIGHT_COLOR_PACKED(perObjectLightIndex).a) & objectMaskHigh) != 0;
-}
-
 // Fills a light struct given a perObjectLightIndex. Additional lights are always spherical lights, lit like point lights.
 Light GetAdditionalPerObjectLight(int perObjectLightIndex, float3 positionWS)
 {
-    float4 lightPositionWS = ADDITIONAL_LIGHT_POSITION_RANGE(perObjectLightIndex); // w: range
+    float4 lightPositionWS = ADDITIONAL_LIGHT_POSITION_INV_RANGE_SQ(perObjectLightIndex); // w: 1 / range^2
     half3 color = half3(ADDITIONAL_LIGHT_COLOR_PACKED(perObjectLightIndex).rgb);
 
     float3 lightVector = lightPositionWS.xyz - positionWS;

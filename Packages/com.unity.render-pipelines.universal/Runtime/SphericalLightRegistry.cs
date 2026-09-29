@@ -9,7 +9,7 @@ namespace UnityEngine.Rendering.Universal
     struct SphericalLightData
     {
         public float4 color;            // rgb: color * intensity in the active color space, w: packed area radius and exclusion mask
-        public float4 positionRange;    // xyz: world position, w: range
+        public float4 positionInvRangeSq;   // xyz: world position, w: 1 / range^2. The range is rsqrt(w).
     }
 
     // Stores the data of all enabled SphericalLights in the layout used by the shaders, so that the renderer can cull
@@ -82,7 +82,8 @@ namespace UnityEngine.Rendering.Universal
 
             s_Data[index] = new SphericalLightData
             {
-                positionRange = new float4((float3)light.transform.position, light.worldRange),
+                // Clamped like Unity's own lights so that a zero range doesn't produce an infinity.
+                positionInvRangeSq = new float4((float3)light.transform.position, 1.0f / math.max(light.worldRange * light.worldRange, 0.0001f)),
                 color = new float4(color.r, color.g, color.b, math.asfloat(areaRadiusAndMask)),
             };
         }

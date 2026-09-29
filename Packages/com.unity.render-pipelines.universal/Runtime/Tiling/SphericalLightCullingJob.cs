@@ -39,10 +39,11 @@ namespace UnityEngine.Rendering.Universal
             int count = 0;
             for (int i = 0; i < lightCount; i++)
             {
-                float4 positionRange = lights[i].positionRange;
-                if (IsVisible(positionRange))
+                float4 positionInvRangeSq = lights[i].positionInvRangeSq;
+                float4 sphere = new float4(positionInvRangeSq.xyz, math.rsqrt(positionInvRangeSq.w));
+                if (IsVisible(sphere))
                 {
-                    float distance = math.distance(positionRange.xyz, cameraPosition) - positionRange.w;
+                    float distance = math.distance(sphere.xyz, cameraPosition) - sphere.w;
                     sortEntries[count++] = new SortEntry { distance = distance, index = i };
                 }
             }

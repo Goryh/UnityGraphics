@@ -148,13 +148,13 @@ float4 _FPParams1;
 //               mask in the high 16 bits. Declared float so the packed bits are loaded untouched; read them with
 //               GetAdditionalLightAreaRadius(), GetAdditionalLightExclusionMask() or IsAdditionalLightExcluded().
 //               It comes first, so the exclusion test that runs before anything else needs no offset.
-//   [2 * i + 1] xyz: position, w: range (external radius)
+//   [2 * i + 1] xyz: position, w: 1 / range^2 (range = external radius)
 CBUFFER_START(AdditionalLights)
 float4 _AdditionalLightsData[2 * (MAX_VISIBLE_LIGHTS + 1)];
 CBUFFER_END
 
 #define ADDITIONAL_LIGHT_COLOR_PACKED(lightIndex) _AdditionalLightsData[2 * (lightIndex)]
-#define ADDITIONAL_LIGHT_POSITION_RANGE(lightIndex) _AdditionalLightsData[2 * (lightIndex) + 1]
+#define ADDITIONAL_LIGHT_POSITION_INV_RANGE_SQ(lightIndex) _AdditionalLightsData[2 * (lightIndex) + 1]
 
 #if USE_FORWARD_PLUS
 

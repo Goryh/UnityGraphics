@@ -51,12 +51,12 @@ namespace UnityEngine.Rendering.Universal
 
         void TileLight(int lightIndex)
         {
-            var positionRange = lights[lightIndex].positionRange;
-            var lightPositionVS = math.mul(worldToViews[m_ViewIndex], math.float4(positionRange.xyz, 1)).xyz;
+            var positionInvRangeSq = lights[lightIndex].positionInvRangeSq;
+            var lightPositionVS = math.mul(worldToViews[m_ViewIndex], math.float4(positionInvRangeSq.xyz, 1)).xyz;
             lightPositionVS.z *= -1;
             if (lightPositionVS.z >= near) ExpandY(lightPositionVS);
 
-            var range = positionRange.w;
+            var range = math.rsqrt(positionInvRangeSq.w);
             var rangesq = square(range);
 
             // Radius of circle formed by intersection of sphere and near plane.
@@ -102,12 +102,12 @@ namespace UnityEngine.Rendering.Universal
 
         void TileLightOrthographic(int lightIndex)
         {
-            var positionRange = lights[lightIndex].positionRange;
-            var lightPosVS = math.mul(worldToViews[m_ViewIndex], math.float4(positionRange.xyz, 1)).xyz;
+            var positionInvRangeSq = lights[lightIndex].positionInvRangeSq;
+            var lightPosVS = math.mul(worldToViews[m_ViewIndex], math.float4(positionInvRangeSq.xyz, 1)).xyz;
             lightPosVS.z *= -1;
             ExpandOrthographic(lightPosVS);
 
-            var range = positionRange.w;
+            var range = math.rsqrt(positionInvRangeSq.w);
             var rangeSq = square(range);
 
             ExpandOrthographic(lightPosVS - math.float3(0, range, 0));
