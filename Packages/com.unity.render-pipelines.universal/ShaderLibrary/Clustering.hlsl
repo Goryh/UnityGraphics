@@ -7,8 +7,8 @@
 #include "Packages/com.unity.render-pipelines.core/ShaderLibrary/FoveatedRendering.hlsl"
 
 // Each screen tile is a single uint4 holding up to MAX_LIGHTS_PER_TILE byte-sized entries, packed from the lowest byte
-// of x upwards. An entry stores (light index + 1), where the light index is relative to the first non-directional
-// additional light. A zero byte terminates the list, and all bytes after it are zero as well.
+// of x upwards. An entry is the index of the light in _AdditionalLightsData, where lights start at index 1. A zero byte
+// terminates the list, and all bytes after it are zero as well.
 
 // internal
 struct ClusterIterator
@@ -47,11 +47,11 @@ ClusterIterator ClusterInit(float2 normalizedScreenSpaceUV)
 }
 
 // internal
-// Returns the next light index (relative to the first non-directional additional light) of the tile.
+// Returns the next light index of the tile, directly usable with the additional light accessors.
 bool ClusterNext(inout ClusterIterator it, out uint lightIndex)
 {
     uint entry = it.entries.x & 0xFF;
-    lightIndex = entry - 1;
+    lightIndex = entry;
 
     // Shift the whole 128-bit entry list down by one byte.
     it.entries = uint4(

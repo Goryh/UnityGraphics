@@ -45,7 +45,8 @@ namespace UnityEngine.Rendering.Universal.Internal
         int m_UsedTileWords;
 
         // Additional lights are the visible SphericalLights, in the layout of the AdditionalLights constant buffer.
-        // Their order defines the additional light index used by the shaders.
+        // Their order defines the additional light index used by the shaders. Element 0 is unused: lights start at 1,
+        // matching the light indices stored in the tiles, where 0 means "no light".
         NativeArray<SphericalLightData> m_LightData;
         GraphicsBuffer m_LightDataBuffer;
         int m_VisibleLightCount;
@@ -108,10 +109,10 @@ namespace UnityEngine.Rendering.Universal.Internal
             m_TileBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Constant, UniversalRenderPipeline.maxTiles, UnsafeUtility.SizeOf<uint4>());
             m_TileBuffer.name = "URP Tile Buffer";
 
-            // Must match MAX_VISIBLE_LIGHTS, which sizes the AdditionalLights constant buffer.
+            // Must match MAX_VISIBLE_LIGHTS + 1, which sizes the AdditionalLights constant buffer.
             int maxLights = UniversalRenderPipeline.maxVisibleAdditionalLights;
-            m_LightData = new NativeArray<SphericalLightData>(maxLights, Allocator.Persistent);
-            m_LightDataBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Constant, maxLights, UnsafeUtility.SizeOf<SphericalLightData>());
+            m_LightData = new NativeArray<SphericalLightData>(maxLights + 1, Allocator.Persistent);
+            m_LightDataBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Constant, maxLights + 1, UnsafeUtility.SizeOf<SphericalLightData>());
             m_LightDataBuffer.name = "URP Additional Lights Buffer";
         }
 
@@ -159,9 +160,9 @@ namespace UnityEngine.Rendering.Universal.Internal
                 viewCount = viewCount,
                 cameraPosition = cameraPosition,
                 sortEntries = sortEntries,
-                visibleLights = m_LightData,
-                // Forward+ stores light indices as (index + 1) in a byte, 0 is reserved for "no light".
-                maxVisibleCount = math.min(m_LightData.Length, UniversalRenderPipeline.maxForwardPlusLights),
+                visibleLights = m_LightData.GetSubArray(1, m_LightData.Length - 1),
+                // Forward+ stores light indices in a byte, 0 is reserved for "no light".
+                maxVisibleCount = math.min(m_LightData.Length - 1, UniversalRenderPipeline.maxForwardPlusLights),
                 visibleCount = visibleCount,
             }.Run();
 
@@ -228,7 +229,7 @@ namespace UnityEngine.Rendering.Universal.Internal
                 var tileRanges = new NativeArray<InclusiveRange>(rangesPerLight * lightCount * viewCount, Allocator.TempJob);
                 var tilingJob = new TilingJob
                 {
-                    lights = m_LightData.GetSubArray(0, lightCount),
+                    lights = m_LightData.GetSubArray(1, lightCount),
                     tileRanges = tileRanges,
                     lightCount = lightCount,
                     rangesPerLight = rangesPerLight,
@@ -329,7 +330,7 @@ namespace UnityEngine.Rendering.Universal.Internal
                         // Only the visible lights are uploaded, the shader never reads past them.
                         int visibleLightCount = m_VisibleLightCount;
                         if (visibleLightCount > 0)
-                            m_LightDataBuffer.SetData(m_LightData, 0, 0, visibleLightCount);
+                            m_LightDataBuffer.SetData(m_LightData, 1, 1, visibleLightCount);
                         cmd.SetGlobalConstantBuffer(m_LightDataBuffer, LightConstantBuffer.AdditionalLights, 0, m_LightData.Length * UnsafeUtility.SizeOf<SphericalLightData>());
                         cmd.SetGlobalVector(LightConstantBuffer._AdditionalLightsCount, new Vector4(visibleLightCount, 0.0f, 0.0f, 0.0f));
                     }

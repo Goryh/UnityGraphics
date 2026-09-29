@@ -14,7 +14,8 @@ namespace UnityEngine.Rendering.Universal
         public NativeArray<InclusiveRange> tileRanges;
 
         // Each tile is `wordsPerTile` words holding up to `UniversalRenderPipeline.maxLightsPerTile` bytes. Each byte is
-        // (light index + 1), 0 means no light. Expected to be cleared to 0.
+        // the light's index in the AdditionalLights constant buffer, where lights start at 1, and 0 means no light.
+        // Expected to be cleared to 0.
         [NativeDisableParallelForRestriction]
         public NativeArray<uint> tileLightIndices;
 
@@ -36,6 +37,7 @@ namespace UnityEngine.Rendering.Universal
                 if (range.isEmpty)
                     continue;
 
+                // Tiled light i is stored at index i + 1 of the AdditionalLights constant buffer.
                 var entry = (uint)(lightIndex + 1);
                 for (int tileX = range.start; tileX <= range.end; tileX++)
                 {

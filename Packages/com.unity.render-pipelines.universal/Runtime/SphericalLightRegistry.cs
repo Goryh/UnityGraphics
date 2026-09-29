@@ -8,8 +8,8 @@ namespace UnityEngine.Rendering.Universal
     [StructLayout(LayoutKind.Sequential)]
     struct SphericalLightData
     {
-        public float4 positionRange;    // xyz: world position, w: range
         public float4 color;            // rgb: color * intensity in the active color space, w: packed area radius and exclusion mask
+        public float4 positionRange;    // xyz: world position, w: range
     }
 
     // Stores the data of all enabled SphericalLights in the layout used by the shaders, so that the renderer can cull

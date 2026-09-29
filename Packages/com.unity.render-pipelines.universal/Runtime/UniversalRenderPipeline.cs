@@ -152,7 +152,7 @@ namespace UnityEngine.Rendering.Universal
         }
 
         // Match with values in Input.hlsl
-        // Forward+ tile buffer: each tile is one uint4 holding up to 16 byte-sized light indices (light index + 1, 0 = no light).
+        // Forward+ tile buffer: each tile is one uint4 holding up to 16 byte-sized light indices (lights start at 1, 0 = no light).
         internal const int maxLightsPerTile = 16;
         internal const int maxTiles = 4096;
         internal const int maxForwardPlusLights = 255;
