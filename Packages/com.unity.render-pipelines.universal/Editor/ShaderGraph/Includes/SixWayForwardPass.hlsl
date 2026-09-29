@@ -25,6 +25,7 @@ void InitializeInputData(Varyings input, bool frontFace, out InputData inputData
     inputData.fogCoord = InitializeInputDataFog(float4(input.positionWS, 1.0), input.fogFactorAndVertexLight.x);
     inputData.vertexLighting = input.fogFactorAndVertexLight.yzw;
     inputData.normalizedScreenSpaceUV = GetNormalizedScreenSpaceUV(input.positionCS);
+    inputData.positionCS = input.positionCS;
     inputData.shadowMask = SAMPLE_SHADOWMASK(input.staticLightmapUV);
 
     #if defined(DEBUG_DISPLAY)
@@ -39,7 +40,6 @@ void InitializeInputData(Varyings input, bool frontFace, out InputData inputData
     #if defined(USE_APV_PROBE_OCCLUSION)
     inputData.probeOcclusion = input.probeOcclusion;
     #endif
-    inputData.positionCS = input.positionCS;
     #endif
 }
 

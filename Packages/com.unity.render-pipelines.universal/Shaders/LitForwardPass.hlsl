@@ -76,9 +76,7 @@ void InitializeInputData(Varyings input, half3 normalTS, out InputData inputData
     inputData.positionWS = input.positionWS;
 #endif
 
-#if defined(DEBUG_DISPLAY)
     inputData.positionCS = input.positionCS;
-#endif
 
     half3 viewDirWS = GetWorldSpaceNormalizeViewDir(input.positionWS);
 #if defined(_NORMALMAP) || defined(_DETAIL)

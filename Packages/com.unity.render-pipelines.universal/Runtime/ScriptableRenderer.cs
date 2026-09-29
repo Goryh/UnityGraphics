@@ -265,14 +265,28 @@ namespace UnityEngine.Rendering.Universal
             #pragma warning restore CS0618
         }
 
+        // The size set as _ScaledScreenParams.xy: the camera target size, scaled by dynamic resolution.
+        internal static Vector2 GetScaledCameraTargetSize(Camera camera, Vector2Int cameraTargetSize)
+        {
+            Vector2 size = cameraTargetSize;
+            if (camera.allowDynamicResolution)
+            {
+                size.x *= ScalableBufferManager.widthScaleFactor;
+                size.y *= ScalableBufferManager.heightScaleFactor;
+            }
+
+            return size;
+        }
+
         void SetPerCameraShaderVariables(RasterCommandBuffer cmd, UniversalCameraData cameraData, Vector2Int cameraTargetSizeCopy, bool isTargetFlipped)
         {
             using var profScope = new ProfilingScope(Profiling.setPerCameraShaderVariables);
 
             Camera camera = cameraData.camera;
 
-            float scaledCameraTargetWidth = (float)cameraTargetSizeCopy.x;
-            float scaledCameraTargetHeight = (float)cameraTargetSizeCopy.y;
+            Vector2 scaledCameraTargetSize = GetScaledCameraTargetSize(camera, cameraTargetSizeCopy);
+            float scaledCameraTargetWidth = scaledCameraTargetSize.x;
+            float scaledCameraTargetHeight = scaledCameraTargetSize.y;
             float cameraWidth = (float)camera.pixelWidth;
             float cameraHeight = (float)camera.pixelHeight;
 
@@ -296,12 +310,6 @@ namespace UnityEngine.Rendering.Universal
                 // Multi-pass needs to set unity_StereoEyeIndex builtin param for skybox-panoramic.shader to work correctly (UUM-120719)
                 if (!cameraData.xr.singlePassEnabled)
                     cmd.SetGlobalVector(XRBuiltinShaderConstants.unity_StereoEyeIndex, new Vector4(cameraData.xr.multipassId, 0, 0, 0));
-            }
-
-            if (camera.allowDynamicResolution)
-            {
-                scaledCameraTargetWidth *= ScalableBufferManager.widthScaleFactor;
-                scaledCameraTargetHeight *= ScalableBufferManager.heightScaleFactor;
             }
 
             float near = camera.nearClipPlane;

@@ -187,11 +187,8 @@ namespace UnityEngine.Rendering.Universal.Internal
                 var camera = cameraData.camera;
 
                 var screenResolution = math.int2(cameraData.pixelWidth, cameraData.pixelHeight);
-#if ENABLE_VR && ENABLE_XR_MODULE
-                var viewCount = cameraData.xr.enabled && cameraData.xr.singlePassEnabled ? 2 : 1;
-#else
+                // Shaders don't support single-pass stereo, so tiles always cover a single view.
                 var viewCount = 1;
-#endif
 
                 var worldToViews = new Fixed2<float4x4>(cameraData.GetViewMatrix(0), cameraData.GetViewMatrix(math.min(1, viewCount - 1)));
                 var viewToClips = new Fixed2<float4x4>(cameraData.GetProjectionMatrix(0), cameraData.GetProjectionMatrix(math.min(1, viewCount - 1)));
@@ -335,8 +332,13 @@ namespace UnityEngine.Rendering.Universal.Internal
                         cmd.SetGlobalVector(LightConstantBuffer._AdditionalLightsCount, new Vector4(visibleLightCount, 0.0f, 0.0f, 0.0f));
                     }
 
-                    cmd.SetGlobalVector("_FPParams0", math.float4(cameraData.pixelRect.size / m_ActualTileWidth, m_TileResolution.x, 0));
-                    cmd.SetGlobalVector("_FPParams1", math.float4(m_TileResolution.x * m_TileResolution.y, 0, 0, 0));
+                    // Tiles per pixel of the scaled render target, so shaders go from SV_Position to tile coordinates with
+                    // a single multiply. Must use the same size as _ScaledScreenParams. The unrounded tile count along
+                    // the height is used to flip the tile y coordinate.
+                    float2 tileScale = cameraData.pixelRect.size / m_ActualTileWidth;
+                    var cameraTargetSize = new Vector2Int(cameraData.cameraTargetDescriptor.width, cameraData.cameraTargetDescriptor.height);
+                    float2 scaledScreenSize = ScriptableRenderer.GetScaledCameraTargetSize(cameraData.camera, cameraTargetSize);
+                    cmd.SetGlobalVector("_FPParams0", math.float4(tileScale / scaledScreenSize, m_TileResolution.x, tileScale.y));
                 }
 
                 SetupShaderLightConstants(cmd, lightData);

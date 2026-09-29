@@ -36,6 +36,7 @@ void InitializeInputData(Varyings input, SurfaceDescription surfaceDescription, 
     inputData.vertexLighting = input.fogFactorAndVertexLight.yzw;
 
     inputData.normalizedScreenSpaceUV = GetNormalizedScreenSpaceUV(input.positionCS);
+    inputData.positionCS = input.positionCS;
 
     #if defined(DEBUG_DISPLAY)
     #if defined(DYNAMICLIGHTMAP_ON)
@@ -50,8 +51,6 @@ void InitializeInputData(Varyings input, SurfaceDescription surfaceDescription, 
     #if defined(USE_APV_PROBE_OCCLUSION)
     inputData.probeOcclusion = input.probeOcclusion;
     #endif
-
-    inputData.positionCS = input.positionCS;
     #endif
 }
 

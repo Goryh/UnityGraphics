@@ -254,7 +254,7 @@ half4 CalculateDebugLightingComplexityColor(in InputData inputData, in SurfaceDa
 #if USE_FORWARD_PLUS
     int numLights = 0;
     uint entityIndex;
-    ClusterIterator it = ClusterInit(inputData.normalizedScreenSpaceUV);
+    ClusterIterator it = ClusterInitPixel(inputData.positionCS.xy);
     [loop] while (ClusterNext(it, entityIndex))
     {
         numLights++;

@@ -1,10 +1,9 @@
 #ifndef UNIVERSAL_CLUSTERING_INCLUDED
 #define UNIVERSAL_CLUSTERING_INCLUDED
 
-#include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Input.hlsl"
+#include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
 
 #if USE_FORWARD_PLUS
-#include "Packages/com.unity.render-pipelines.core/ShaderLibrary/FoveatedRendering.hlsl"
 
 // Each screen tile is a single uint4 holding up to MAX_LIGHTS_PER_TILE byte-sized entries, packed from the lowest byte
 // of x upwards. An entry is the index of the light in _AdditionalLightsData, where lights start at index 1. A zero byte
@@ -17,33 +16,28 @@ struct ClusterIterator
     uint4 entries;
 };
 
+// Foveated rendering (non-uniform raster) and single-pass stereo are not supported: tiles cover a single view.
+
 // internal
-ClusterIterator ClusterInit(float2 normalizedScreenSpaceUV)
+ClusterIterator ClusterInitTile(uint2 tileCoord)
 {
-#if defined(SUPPORTS_FOVEATED_RENDERING_NON_UNIFORM_RASTER)
-    UNITY_BRANCH if (_FOVEATED_RENDERING_NON_UNIFORM_RASTER)
-    {
-#if UNITY_UV_STARTS_AT_TOP
-        // RemapFoveatedRenderingNonUniformToLinear expects the UV coordinate to be non-flipped, so we un-flip it before
-        // the call, and then flip it back afterwards.
-        normalizedScreenSpaceUV.y = 1.0 - normalizedScreenSpaceUV.y;
-#endif
-        normalizedScreenSpaceUV = RemapFoveatedRenderingNonUniformToLinear(normalizedScreenSpaceUV);
-#if UNITY_UV_STARTS_AT_TOP
-        normalizedScreenSpaceUV.y = 1.0 - normalizedScreenSpaceUV.y;
-#endif
-    }
-#endif // SUPPORTS_FOVEATED_RENDERING_NON_UNIFORM_RASTER
-
-    uint2 tileCoord = uint2(normalizedScreenSpaceUV * URP_FP_TILE_SCALE);
-    uint tileIndex = tileCoord.y * URP_FP_TILE_COUNT_X + tileCoord.x;
-#if defined(USING_STEREO_MATRICES)
-    tileIndex += URP_FP_TILE_COUNT * unity_StereoEyeIndex;
-#endif
-
     ClusterIterator it;
-    it.entries = urp_Tiles[tileIndex];
+    it.entries = urp_Tiles[tileCoord.y * URP_FP_TILE_COUNT_X + tileCoord.x];
     return it;
+}
+
+// internal
+// Finds the tile of a pixel, given its SV_Position. Goes from the pixel position straight to tile coordinates with a
+// single scale, giving the same tile as scaling GetNormalizedScreenSpaceUV(positionCS).
+ClusterIterator ClusterInitPixel(float2 positionCS)
+{
+    float2 tile = positionCS * URP_FP_TILES_PER_PIXEL;
+#if UNITY_UV_STARTS_AT_TOP
+    // Same flip as TransformNormalizedScreenUV(), in tile units. _ScaleBiasRt depends on the render target, so the flip
+    // can't be folded into the scale on the CPU.
+    tile.y = URP_FP_TILE_SCALE_Y - (tile.y * _ScaleBiasRt.x + _ScaleBiasRt.y * URP_FP_TILE_SCALE_Y);
+#endif
+    return ClusterInitTile(uint2(tile));
 }
 
 // internal
