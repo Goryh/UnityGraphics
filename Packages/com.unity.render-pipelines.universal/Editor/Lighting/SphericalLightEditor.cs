@@ -13,14 +13,12 @@ namespace UnityEditor.Rendering.Universal
             public static readonly GUIContent Intensity = EditorGUIUtility.TrTextContent("Intensity", "The intensity of the light.");
             public static readonly GUIContent Range = EditorGUIUtility.TrTextContent("Range", "External radius at which the light's contribution fades to zero. Scaled by the transform's global X scale.");
             public static readonly GUIContent AreaRadius = EditorGUIUtility.TrTextContent("Area Radius", "Internal radius of the light's emitting sphere. Cannot exceed the range. Scaled by the transform's global X scale.");
-            public static readonly GUIContent ExclusionMask = EditorGUIUtility.TrTextContent("Exclusion Mask", "16 bit mask passed to shaders, read with GetAdditionalLightExclusionMask().");
         }
 
         SerializedProperty m_Color;
         SerializedProperty m_Intensity;
         SerializedProperty m_Range;
         SerializedProperty m_AreaRadius;
-        SerializedProperty m_ExclusionMask;
 
         void OnEnable()
         {
@@ -28,7 +26,6 @@ namespace UnityEditor.Rendering.Universal
             m_Intensity = serializedObject.FindProperty("m_Intensity");
             m_Range = serializedObject.FindProperty("m_Range");
             m_AreaRadius = serializedObject.FindProperty("m_AreaRadius");
-            m_ExclusionMask = serializedObject.FindProperty("m_ExclusionMask");
         }
 
         public override void OnInspectorGUI()
@@ -39,12 +36,6 @@ namespace UnityEditor.Rendering.Universal
             EditorGUILayout.PropertyField(m_Intensity, Styles.Intensity);
             EditorGUILayout.PropertyField(m_Range, Styles.Range);
             EditorGUILayout.PropertyField(m_AreaRadius, Styles.AreaRadius);
-            EditorGUILayout.PropertyField(m_ExclusionMask, Styles.ExclusionMask);
-            if (!m_ExclusionMask.hasMultipleDifferentValues && (m_ExclusionMask.longValue < 0 || m_ExclusionMask.longValue > ushort.MaxValue))
-            {
-                Debug.AssertFormat(false, "Spherical light exclusion mask {0} does not fit in 16 bits, clamping it to [0, {1}].", m_ExclusionMask.longValue, ushort.MaxValue);
-                m_ExclusionMask.longValue = System.Math.Clamp(m_ExclusionMask.longValue, 0, ushort.MaxValue);
-            }
 
             // Applying calls SphericalLight.OnValidate(), which clamps the area radius and updates the light.
             serializedObject.ApplyModifiedProperties();

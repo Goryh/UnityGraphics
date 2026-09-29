@@ -15,7 +15,8 @@ namespace UnityEngine.Rendering.Universal
         [SerializeField, Min(0.0f)] float m_Intensity = 1.0f;
         [SerializeField, Min(0.0f)] float m_Range = 10.0f;
         [SerializeField, Min(0.01f)] float m_AreaRadius = 0.01f;
-        [SerializeField] ushort m_ExclusionMask = 0;
+        // Internal only: not serialized nor exposed, it is 0 unless set from within the render pipeline assembly.
+        [System.NonSerialized] ushort m_ExclusionMask = 0;
 
         // Index into SphericalLightRegistry, -1 when the light is not registered.
         [System.NonSerialized] internal int registryIndex = -1;
