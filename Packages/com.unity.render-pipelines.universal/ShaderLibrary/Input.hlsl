@@ -98,10 +98,6 @@ SAMPLER(sampler_GlossyEnvironmentCubeMap);
 #define _InvCameraViewProj unity_MatrixInvVP
 float4 _ScaledScreenParams;
 
-// x = Mip Bias
-// y = 2.0 ^ [Mip Bias]
-float2 _GlobalMipBias;
-
 // 1.0 if it's possible for AlphaToMask to be enabled for this draw and 0.0 otherwise
 float _AlphaToMaskAvailable;
 
