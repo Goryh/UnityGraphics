@@ -26,6 +26,8 @@ namespace UnityEngine.Rendering.Universal.Internal
 
             public static int _AdditionalLightsCount;
             public static int AdditionalLights;     // Constant buffer holding the additional (spherical) light arrays.
+            public static readonly int _FPParams0 = Shader.PropertyToID("_FPParams0");
+            public static readonly int _FPTileCountX = Shader.PropertyToID("_FPTileCountX");
         }
 
         const string k_SetupLightConstants = "Setup Light Constants";
@@ -50,6 +52,10 @@ namespace UnityEngine.Rendering.Universal.Internal
         NativeArray<SphericalLightData> m_LightData;
         GraphicsBuffer m_LightDataBuffer;
         int m_VisibleLightCount;
+
+        // Whether lit geometry renders with the backbuffer orientation, i.e. with an unflipped projection. Set by the
+        // renderer once the camera targets are known.
+        bool m_IsTargetBackbufferOrientation;
 
         LightCookieManager m_LightCookieManager;
         ReflectionProbeManager m_ReflectionProbeManager;
@@ -171,6 +177,13 @@ namespace UnityEngine.Rendering.Universal.Internal
             sortEntries.Dispose();
             frustumPlanes.Dispose();
             return count;
+        }
+
+        // Tells whether lit geometry renders with the backbuffer orientation (unflipped projection), which decides the
+        // y flip of the Forward+ tile lookup. Must match the orientation used by the camera properties.
+        internal void SetTargetOrientation(bool isTargetBackbufferOrientation)
+        {
+            m_IsTargetBackbufferOrientation = isTargetBackbufferOrientation;
         }
 
         internal void PreSetup(UniversalCameraData cameraData, UniversalLightData lightData)
@@ -333,12 +346,21 @@ namespace UnityEngine.Rendering.Universal.Internal
                     }
 
                     // Tiles per pixel of the scaled render target, so shaders go from SV_Position to tile coordinates with
-                    // a single multiply. Must use the same size as _ScaledScreenParams. The unrounded tile count along
-                    // the height is used to flip the tile y coordinate.
+                    // a single multiply-add. Must use the same size as _ScaledScreenParams.
                     float2 tileScale = cameraData.pixelRect.size / m_ActualTileWidth;
                     var cameraTargetSize = new Vector2Int(cameraData.cameraTargetDescriptor.width, cameraData.cameraTargetDescriptor.height);
                     float2 scaledScreenSize = ScriptableRenderer.GetScaledCameraTargetSize(cameraData.camera, cameraTargetSize);
-                    cmd.SetGlobalVector("_FPParams0", math.float4(tileScale / scaledScreenSize, m_TileResolution.x, tileScale.y));
+                    float2 tilesPerPixel = tileScale / scaledScreenSize;
+
+                    // Tile rows go upwards. Where UVs start at the top, the projection is flipped for render textures, so
+                    // SV_Position.y goes upwards there too, but downwards for the backbuffer: flip it with the scale and
+                    // offset (tile y = tileScale.y - y * tilesPerPixel.y).
+                    bool flipY = SystemInfo.graphicsUVStartsAtTop && m_IsTargetBackbufferOrientation;
+                    float4 pixelToTile = flipY
+                        ? math.float4(tilesPerPixel.x, -tilesPerPixel.y, 0.0f, tileScale.y)
+                        : math.float4(tilesPerPixel, 0.0f, 0.0f);
+                    cmd.SetGlobalVector(LightConstantBuffer._FPParams0, pixelToTile);
+                    cmd.SetGlobalInteger(LightConstantBuffer._FPTileCountX, m_TileResolution.x);
                 }
 
                 SetupShaderLightConstants(cmd, lightData);

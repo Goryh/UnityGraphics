@@ -20,10 +20,11 @@ struct Light
 
 #if USE_FORWARD_PLUS
     #define LIGHT_LOOP_BEGIN(lightCount) { \
+    ClusterIterator _urp_internal_clusterIterator; \
+    if (ClusterInitPixel(inputData.positionCS.xy, _urp_internal_clusterIterator)) { \
     uint lightIndex; \
-    ClusterIterator _urp_internal_clusterIterator = ClusterInitPixel(inputData.positionCS.xy); \
     [loop] while (ClusterNext(_urp_internal_clusterIterator, lightIndex)) {
-    #define LIGHT_LOOP_END } }
+    #define LIGHT_LOOP_END } } }
 #else
     #define LIGHT_LOOP_BEGIN(lightCount) \
     for (uint lightIndex = 0u; lightIndex < lightCount; ++lightIndex) {

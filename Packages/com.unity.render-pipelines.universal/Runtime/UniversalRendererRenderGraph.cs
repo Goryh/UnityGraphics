@@ -944,7 +944,10 @@ namespace UnityEngine.Rendering.Universal
 
             RecordCustomRenderGraphPasses(renderGraph, RenderPassEvent.BeforeRendering);
 
-            SetupRenderGraphCameraProperties(renderGraph, resourceData.isActiveTargetBackBuffer || m_UseOnTileUberPost);
+            bool isTargetBackbufferOrientation = resourceData.isActiveTargetBackBuffer || m_UseOnTileUberPost;
+            SetupRenderGraphCameraProperties(renderGraph, isTargetBackbufferOrientation);
+            // The Forward+ tile lookup folds the y flip in on the CPU, so it needs the same orientation as the camera properties.
+            m_ForwardLights.SetTargetOrientation(isTargetBackbufferOrientation);
 
 #if VISUAL_EFFECT_GRAPH_0_0_1_OR_NEWER
             ProcessVFXCameraCommand(renderGraph);

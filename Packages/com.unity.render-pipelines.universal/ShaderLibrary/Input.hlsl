@@ -128,14 +128,14 @@ float4 _ScreenSizeOverride;
 uint _EnableProbeVolumes;
 
 #if USE_FORWARD_PLUS
-// xy: tiles per pixel, z: tile count along x, w: tile count along the screen height (unrounded).
+// Tile coordinates = SV_Position.xy * xy + zw. The y flip needed when SV_Position.y grows downwards (rendering to the
+// backbuffer on platforms where UVs start at the top) is folded into the scale and offset on the CPU.
 float4 _FPParams0;
+uint _FPTileCountX;
 
-// Scale from pixel position (SV_Position, in _ScaledScreenParams units) to tile coordinates, before the y flip.
-#define URP_FP_TILES_PER_PIXEL ((float2)_FPParams0.xy)
-// Scale from screen-space UV y [0, 1] to tile coordinates, used to flip the tile y coordinate.
-#define URP_FP_TILE_SCALE_Y (_FPParams0.w)
-#define URP_FP_TILE_COUNT_X ((uint)_FPParams0.z)
+#define URP_FP_PIXEL_TO_TILE_SCALE ((float2)_FPParams0.xy)
+#define URP_FP_PIXEL_TO_TILE_OFFSET ((float2)_FPParams0.zw)
+#define URP_FP_TILE_COUNT_X (_FPTileCountX)
 
 #endif
 

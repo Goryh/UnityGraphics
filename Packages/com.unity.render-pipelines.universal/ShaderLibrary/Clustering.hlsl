@@ -9,12 +9,33 @@
 // of x upwards. An entry is the index of the light in _AdditionalLightsData, where lights start at index 1. A zero byte
 // terminates the list, and all bytes after it are zero as well.
 
+// Iterate a tile with a rotated loop, so the only test per light is at the bottom:
+//
+//     ClusterIterator it;
+//     uint lightIndex;
+//     if (ClusterInitPixel(positionCS, it, lightIndex))
+//     {
+//         do { ... } while (ClusterNext(it, lightIndex));
+//     }
+//
+// `continue` in the body jumps to ClusterNext(), so it still moves on to the next light.
+
 // internal
 struct ClusterIterator
 {
-    // Remaining entries of the tile, the next one is always in the lowest byte of x.
+    // Remaining entries of the tile. The entries of x are consumed first, from its lowest byte; when x is used up, the
+    // next word moves in. After the end of the list all bytes are zero, so moving in more words keeps returning 0.
     uint4 entries;
 };
+
+// internal
+// Returns the next entry of the tile, 0 at the end of the list.
+uint ClusterPop(inout ClusterIterator it)
+{
+    uint lightIndex = it.entries.x & 0xFF;
+    it.entries.x >>= 8;
+    return lightIndex;
+}
 
 // Foveated rendering (non-uniform raster) and single-pass stereo are not supported: tiles cover a single view.
 
@@ -27,34 +48,28 @@ ClusterIterator ClusterInitTile(uint2 tileCoord)
 }
 
 // internal
-// Finds the tile of a pixel, given its SV_Position. Goes from the pixel position straight to tile coordinates with a
-// single scale, giving the same tile as scaling GetNormalizedScreenSpaceUV(positionCS).
-ClusterIterator ClusterInitPixel(float2 positionCS)
+// Finds the tile of a pixel, given its SV_Position, and returns its first light index. Returns false if the tile has
+// no lights. Goes from the pixel position straight to tile coordinates with a single multiply-add, which also applies
+// the y flip for the current render target orientation.
+bool ClusterInitPixel(float2 positionCS, out ClusterIterator it)
 {
-    float2 tile = positionCS * URP_FP_TILES_PER_PIXEL;
-#if UNITY_UV_STARTS_AT_TOP
-    // Same flip as TransformNormalizedScreenUV(), in tile units. _ScaleBiasRt depends on the render target, so the flip
-    // can't be folded into the scale on the CPU.
-    tile.y = URP_FP_TILE_SCALE_Y - (tile.y * _ScaleBiasRt.x + _ScaleBiasRt.y * URP_FP_TILE_SCALE_Y);
-#endif
-    return ClusterInitTile(uint2(tile));
+    float2 tile = positionCS * URP_FP_PIXEL_TO_TILE_SCALE + URP_FP_PIXEL_TO_TILE_OFFSET;
+    it = ClusterInitTile(uint2(tile));
+    return it.entries.x != 0;
 }
 
 // internal
-// Returns the next light index of the tile, directly usable with the additional light accessors.
+// Moves to the next light of the tile and returns its index, directly usable with the additional light accessors.
+// Returns false at the end of the list.
 bool ClusterNext(inout ClusterIterator it, out uint lightIndex)
 {
-    uint entry = it.entries.x & 0xFF;
-    lightIndex = entry;
+    // The current word is used up (4 lights, or the end of the list): move the next one in. This happens at most once
+    // every 4 lights, and in the same way for all pixels of a tile.
+    if (it.entries.x == 0)
+        it.entries = uint4(it.entries.yzw, 0);
 
-    // Shift the whole 128-bit entry list down by one byte.
-    it.entries = uint4(
-        (it.entries.x >> 8) | (it.entries.y << 24),
-        (it.entries.y >> 8) | (it.entries.z << 24),
-        (it.entries.z >> 8) | (it.entries.w << 24),
-        (it.entries.w >> 8));
-
-    return entry != 0;
+    lightIndex = ClusterPop(it);
+    return lightIndex != 0;
 }
 
 #endif
