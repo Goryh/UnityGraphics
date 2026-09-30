@@ -143,17 +143,16 @@ uint _FPTileCountX;
 // The buffer is bound from C# (ForwardLights.m_LightDataBuffer), so it must stay a constant buffer and its layout
 // must match SphericalLightData: two float4 per light, interleaved. Lights start at index 1 (index 0 is unused), so the
 // light indices stored in the Forward+ tiles, where 0 means "no light", address the array directly.
-//   [2 * i]     rgb: color, a: bits of the area radius (internal radius) as a half in the low 16 bits and the exclusion
+//   [2 * i]     xyz: position, w: 1 / range^2 (range = external radius)
+//   [2 * i + 1] rgb: color, a: bits of the area radius (internal radius) as a half in the low 16 bits and the exclusion
 //               mask in the high 16 bits. Declared float so the packed bits are loaded untouched; read them with
-//               GetAdditionalLightAreaRadius(), GetAdditionalLightExclusionMask() or IsAdditionalLightExcluded().
-//               It comes first, so the exclusion test that runs before anything else needs no offset.
-//   [2 * i + 1] xyz: position, w: 1 / range^2 (range = external radius)
+//               GetAdditionalLightAreaRadius() or GetAdditionalLightExclusionMask().
 CBUFFER_START(AdditionalLights)
 float4 _AdditionalLightsData[2 * (MAX_VISIBLE_LIGHTS + 1)];
 CBUFFER_END
 
-#define ADDITIONAL_LIGHT_COLOR_PACKED(lightIndex) _AdditionalLightsData[2 * (lightIndex)]
-#define ADDITIONAL_LIGHT_POSITION_INV_RANGE_SQ(lightIndex) _AdditionalLightsData[2 * (lightIndex) + 1]
+#define ADDITIONAL_LIGHT_POSITION_INV_RANGE_SQ(lightIndex) _AdditionalLightsData[2 * (lightIndex)]
+#define ADDITIONAL_LIGHT_COLOR_PACKED(lightIndex) _AdditionalLightsData[2 * (lightIndex) + 1]
 
 #if USE_FORWARD_PLUS
 
