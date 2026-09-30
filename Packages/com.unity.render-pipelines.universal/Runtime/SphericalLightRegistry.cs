@@ -9,7 +9,7 @@ namespace UnityEngine.Rendering.Universal
     struct SphericalLightData
     {
         public float4 positionInvRangeSq;   // xyz: world position, w: 1 / range^2. The range is rsqrt(w).
-        public float4 color;                // rgb: color * intensity in the active color space, w: packed area radius and exclusion mask
+        public float4 color;                // rgb: color * color alpha * intensity in the active color space, w: packed area radius and exclusion mask
     }
 
     // Stores the data of all enabled SphericalLights in the layout used by the shaders, so that the renderer can cull
@@ -69,10 +69,11 @@ namespace UnityEngine.Rendering.Universal
         internal static void Write(int index, SphericalLight light)
         {
             // Matches VisibleLight.finalColor for the intensity mode URP sets up (linear intensity in linear color space).
+            // The color's alpha is an additional intensity multiplier, it is not converted to linear.
             Color color = light.color;
             if (QualitySettings.activeColorSpace == ColorSpace.Linear)
                 color = color.linear;
-            color *= light.intensity;
+            color *= light.intensity * light.color.a;
 
             float areaRadius = light.worldAreaRadius;
             Debug.Assert(areaRadius <= k_MaxAreaRadius, $"Spherical light '{light.name}' area radius {areaRadius} exceeds {k_MaxAreaRadius}, the largest value it can be stored with.", light);

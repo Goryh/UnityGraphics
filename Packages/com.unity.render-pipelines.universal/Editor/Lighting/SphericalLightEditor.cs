@@ -9,7 +9,7 @@ namespace UnityEditor.Rendering.Universal
     {
         static class Styles
         {
-            public static readonly GUIContent Color = EditorGUIUtility.TrTextContent("Color", "The color of the light.");
+            public static readonly GUIContent Color = EditorGUIUtility.TrTextContent("Color", "The color of the light. Its alpha is a multiplier applied to the intensity.");
             public static readonly GUIContent Intensity = EditorGUIUtility.TrTextContent("Intensity", "The intensity of the light.");
             public static readonly GUIContent Range = EditorGUIUtility.TrTextContent("Range", "External radius at which the light's contribution fades to zero. Scaled by the transform's global X scale.");
             public static readonly GUIContent AreaRadius = EditorGUIUtility.TrTextContent("Area Radius", "Internal radius of the light's emitting sphere. Cannot exceed the range. Scaled by the transform's global X scale.");
@@ -61,20 +61,19 @@ namespace UnityEditor.Rendering.Universal
                 {
                     Undo.RecordObject(light, "Adjust Spherical Light Range");
                     light.range = worldRange / scale;
-                    light.areaRadius = Mathf.Min(light.areaRadius, light.range);
                     light.UpdateLight();
                 }
             }
 
             EditorGUI.BeginChangeCheck();
 
-            using (new Handles.DrawingScope(Color.Lerp(color, Color.white, 0.5f)))
+            using (new Handles.DrawingScope(Color.Lerp(new Color(color.r, color.g, color.b, 1.0f), Color.white, 0.5f)))
             {
                 float worldAreaRadius = Handles.RadiusHandle(Quaternion.identity, position, light.worldAreaRadius);
                 if (EditorGUI.EndChangeCheck())
                 {
                     Undo.RecordObject(light, "Adjust Spherical Light Area Radius");
-                    light.areaRadius = Mathf.Min(worldAreaRadius / scale, light.range);
+                    light.areaRadius = worldAreaRadius / scale;
                     light.UpdateLight();
                 }
             }

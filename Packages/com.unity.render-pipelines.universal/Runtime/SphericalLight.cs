@@ -11,7 +11,7 @@ namespace UnityEngine.Rendering.Universal
     [AddComponentMenu("Rendering/Spherical Light")]
     public class SphericalLight : MonoBehaviour
     {
-        [SerializeField, ColorUsage(false)] Color m_Color = Color.white;
+        [SerializeField, ColorUsage(true)] Color m_Color = Color.white;
         [SerializeField, Min(0.0f)] float m_Intensity = 1.0f;
         [SerializeField, Min(0.0f)] float m_Range = 10.0f;
         [SerializeField, Min(0.01f)] float m_AreaRadius = 0.01f;
@@ -22,7 +22,7 @@ namespace UnityEngine.Rendering.Universal
         [System.NonSerialized] internal int registryIndex = -1;
 
         /// <summary>
-        /// The color of the light.
+        /// The color of the light. Its alpha is multiplied with <see cref="intensity"/>.
         /// </summary>
         public Color color
         {
@@ -123,7 +123,7 @@ namespace UnityEngine.Rendering.Universal
 
         void OnDrawGizmos()
         {
-            Gizmos.DrawIcon(transform.position, k_GizmoPath, true, m_Color);
+            Gizmos.DrawIcon(transform.position, k_GizmoPath, true, new Color(m_Color.r, m_Color.g, m_Color.b, 1.0f));
         }
 #endif
     }
