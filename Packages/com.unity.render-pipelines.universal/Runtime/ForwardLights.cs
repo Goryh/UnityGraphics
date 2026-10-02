@@ -122,6 +122,12 @@ namespace UnityEngine.Rendering.Universal.Internal
             m_TileOverflowBuffer.name = "URP Tile Overflow Buffer";
             m_HasOverflow = new NativeArray<int>(1, Allocator.Persistent);
 
+            // Start both tile buffers zeroed (m_TileLightIndices is allocated cleared): the overflow buffer is only
+            // written in frames where a tile uses it, but it is bound from the start.
+            var zeroTiles = m_TileLightIndices.Reinterpret<uint4>(UnsafeUtility.SizeOf<uint>());
+            m_TileBuffer.SetData(zeroTiles, 0, 0, UniversalRenderPipeline.maxTiles);
+            m_TileOverflowBuffer.SetData(zeroTiles, UniversalRenderPipeline.maxTiles, 0, UniversalRenderPipeline.maxTiles);
+
             // Must match MAX_VISIBLE_LIGHTS + 1, which sizes the AdditionalLights constant buffer.
             int maxLights = UniversalRenderPipeline.maxVisibleAdditionalLights;
             m_LightData = new NativeArray<SphericalLightData>(maxLights + 1, Allocator.Persistent);
@@ -344,17 +350,19 @@ namespace UnityEngine.Rendering.Universal.Internal
 
                     using (new ProfilingScope(m_ProfilingSamplerFPUpload))
                     {
-                        // Only the tiles in use are uploaded, the shader never reads past them.
+                        // Only the tiles in use are uploaded and bound, the shader never reads past them. Binding the
+                        // used range rather than the whole buffer keeps what each draw references small.
                         var usedTiles = m_UsedTileWords / TileRangeExpansionJob.wordsPerTile;
+                        int usedTileBytes = usedTiles * UnsafeUtility.SizeOf<uint4>();
                         var tiles = m_TileLightIndices.Reinterpret<uint4>(UnsafeUtility.SizeOf<uint>());
                         m_TileBuffer.SetData(tiles, 0, 0, usedTiles);
-                        cmd.SetGlobalConstantBuffer(m_TileBuffer, "urp_TileBuffer", 0, UniversalRenderPipeline.maxTiles * UnsafeUtility.SizeOf<uint4>());
+                        cmd.SetGlobalConstantBuffer(m_TileBuffer, "urp_TileBuffer", 0, usedTileBytes);
 
                         // The overflow tiles are only read for tiles using all 16 entries of urp_Tiles: skip the upload
                         // when there are none. The buffer is still bound, its stale content is never read.
                         if (m_HasOverflow[0] != 0)
                             m_TileOverflowBuffer.SetData(tiles, m_OverflowWordOffset / TileRangeExpansionJob.wordsPerTile, 0, usedTiles);
-                        cmd.SetGlobalConstantBuffer(m_TileOverflowBuffer, "urp_TileOverflowBuffer", 0, UniversalRenderPipeline.maxTiles * UnsafeUtility.SizeOf<uint4>());
+                        cmd.SetGlobalConstantBuffer(m_TileOverflowBuffer, "urp_TileOverflowBuffer", 0, usedTileBytes);
 
                         // Only the visible lights are uploaded, the shader never reads past them.
                         int visibleLightCount = m_VisibleLightCount;
