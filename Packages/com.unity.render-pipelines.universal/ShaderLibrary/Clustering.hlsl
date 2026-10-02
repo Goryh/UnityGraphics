@@ -32,15 +32,6 @@ struct ClusterIterator
     uint overflowTile;
 };
 
-// internal
-// Returns the next entry of the tile, 0 at the end of the list.
-uint ClusterPop(inout ClusterIterator it)
-{
-    uint lightIndex = it.entries.x & 0xFF;
-    it.entries.x >>= 8;
-    return lightIndex;
-}
-
 // Foveated rendering (non-uniform raster) and single-pass stereo are not supported: tiles cover a single view.
 
 // internal
@@ -51,7 +42,7 @@ ClusterIterator ClusterInitTile(uint2 tileCoord)
     ClusterIterator it;
     it.entries = urp_Tiles[tileIndex];
     // The 16th entry is the highest byte of w: when it is used, the list continues in urp_TilesOverflow.
-    it.overflowTile = (it.entries.w >> 24) != 0 ? tileIndex + 1 : 0;
+    it.overflowTile = (it.entries.w >> 24) != 0u ? tileIndex + 1 : 0u;
     return it;
 }
 
@@ -70,7 +61,7 @@ float2 ClusterPixelToTile(float2 positionCS)
 bool ClusterInitPixel(float2 positionCS, out ClusterIterator it)
 {
     it = ClusterInitTile(uint2(ClusterPixelToTile(positionCS)));
-    return it.entries.x != 0;
+    return it.entries.x != 0u;
 }
 
 // internal
@@ -80,22 +71,29 @@ bool ClusterNext(inout ClusterIterator it, out uint lightIndex)
 {
     // The current word is used up (4 lights, or the end of the list): move the next one in. This happens at most once
     // every 4 lights, and in the same way for all pixels of a tile.
-    if (it.entries.x == 0)
+    if (it.entries.x == 0u)
         it.entries = uint4(it.entries.yzw, 0);
 
-    lightIndex = ClusterPop(it);
-    if (lightIndex != 0)
-        return true;
+    lightIndex = it.entries.x & 0xFF;
 
-    // End of the list, or of the first 16 entries of a full tile: then continue with its overflow entries. Nested here
-    // so the lights before the end only pay for the test above.
-    if (it.overflowTile == 0)
-        return false;
+    // Rare path: the current word is used up (every 4 lights, or the end of the list).
+    [branch]
+    if (lightIndex == 0u)
+    {
+        it.entries = uint4(it.entries.yzw, 0u);
 
-    it.entries = urp_TilesOverflow[it.overflowTile - 1];
-    it.overflowTile = 0;
-    lightIndex = ClusterPop(it);
-    return lightIndex != 0;
+        [branch]
+        if (it.entries.x == 0u && it.overflowTile != 0u)
+        {
+            it.entries = urp_TilesOverflow[it.overflowTile - 1u];
+            it.overflowTile = 0u;
+        }
+
+        lightIndex = it.entries.x & 0xFF;
+    }
+
+    it.entries.x >>= 8; // no-op at the end of the list, x is already 0
+    return lightIndex != 0u;
 }
 
 #endif
