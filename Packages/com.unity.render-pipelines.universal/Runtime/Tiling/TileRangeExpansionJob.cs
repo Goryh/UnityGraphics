@@ -31,6 +31,7 @@ namespace UnityEngine.Rendering.Universal
             var tileLightCounts = new NativeArray<byte>(tileResolution.x, Allocator.Temp);
 
             // Lights are appended in index order, so when a tile is full the remaining higher indexed lights are dropped.
+            // Index order is the culling job's sort by nearest sphere distance, which shaders rely on for their early out.
             for (var lightIndex = 0; lightIndex < lightCount; lightIndex++)
             {
                 var range = tileRanges[(viewIndex * lightCount + lightIndex) * rangesPerLight + 1 + rowIndex];

@@ -9,6 +9,9 @@ namespace UnityEngine.Rendering.Universal
     // Culls the registered SphericalLights against the camera frustum(s), sorts the visible ones nearest first and
     // writes up to maxVisibleCount of them into the shader data layout. When a tile overflows, the lights dropped are
     // the ones farthest from the camera.
+    // The sort key, |center - camera| - range, is the distance from the camera to the nearest point of the light's
+    // sphere. Shaders rely on tiles listing lights in that order (see IsPixelBeforeRemainingAdditionalLights()), so it
+    // must be kept.
     [BurstCompile(FloatMode = FloatMode.Fast, DisableSafetyChecks = true, OptimizeFor = OptimizeFor.Performance)]
     struct SphericalLightCullingJob : IJob
     {

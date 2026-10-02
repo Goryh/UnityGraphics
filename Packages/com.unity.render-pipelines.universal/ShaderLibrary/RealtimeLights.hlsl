@@ -152,6 +152,20 @@ uint GetAdditionalLightExclusionMask(int perObjectLightIndex)
     return asuint(ADDITIONAL_LIGHT_COLOR_PACKED(perObjectLightIndex).a) >> 16;
 }
 
+// Forward+ early out. Returns true when the whole sphere of a light lies beyond the plane through the pixel that faces
+// the camera: the pixel is then closer to the camera than any point of that sphere. Tiles list their lights sorted by
+// the distance from the camera to their sphere's nearest point (|center - camera| - range), so the pixel is also closer
+// than every remaining light of the tile, and none of them can light it: the light loop can stop.
+//   lightVector:   light position - pixel position (not normalized)
+//   cameraToPixel: unit direction from the camera to the pixel (-viewDirectionWS)
+//   invRangeSq:    1 / range^2, the w of ADDITIONAL_LIGHT_POSITION_INV_RANGE_SQ
+// Tests dot(lightVector, cameraToPixel) > range without a square root: d * |d| / range^2 > 1.
+bool IsPixelBeforeRemainingAdditionalLights(half3 lightVector, half3 cameraToPixel, float invRangeSq)
+{
+    half d = dot(lightVector, cameraToPixel);
+    return d * abs(d) * invRangeSq > 1.0;
+}
+
 // Fills a light struct given a perObjectLightIndex. Additional lights are always spherical lights, lit like point lights.
 Light GetAdditionalPerObjectLight(int perObjectLightIndex, float3 positionWS)
 {

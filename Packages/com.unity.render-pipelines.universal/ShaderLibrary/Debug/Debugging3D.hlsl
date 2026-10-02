@@ -249,31 +249,70 @@ half3 CalculateDebugShadowCascadeColor(in InputData inputData)
     }
 }
 
-half4 CalculateDebugLightingComplexityColor(in InputData inputData, in SurfaceData surfaceData)
-{
 #if USE_FORWARD_PLUS
-    int numLights = 0;
-    ClusterIterator it;
-    if (ClusterInitPixel(inputData.positionCS.xy, it))
-    {
-        uint entityIndex;
-        [loop] while (ClusterNext(it, entityIndex))
-        {
-            numLights++;
-        }
-    }
-#else
-    // Assume a main light and add 1 to the additional lights.
-    int numLights = GetAdditionalLightsCount() + 1;
+// Heat map tile showing two light counts: the background color and the bottom number show the lights visited with the
+// Forward+ early out, the top number shows every light of the tile (the lights visited without it).
+float4 OverlayHeatMapEarlyOut(uint2 pixCoord, uint2 tileSize, uint numLights, uint numVisited, uint maxN, float opacity)
+{
+    int colorIndex = 1 + (int)floor(10 * (log2((float)numVisited + 0.1f) / log2(float(maxN))));
+    colorIndex = clamp(colorIndex, 0, DEBUG_COLORS_COUNT - 1);
+    float4 col = kDebugColorGradient[colorIndex];
+    float4 color = float4(PositivePow(col.rgb, 2.2), opacity * col.a);
+
+    // Pixel y goes up: the first line is the upper one.
+    int2 localCoord = int2(pixCoord & (tileSize - 1));
+    int2 allCoord = localCoord - int2(tileSize.x / 4 + 1, tileSize.y / 2 - 1);
+    int2 visitedCoord = localCoord - int2(tileSize.x / 4 + 1, 1);
+
+    if (SampleDebugFontNumber3Digits(allCoord, numLights) || SampleDebugFontNumber3Digits(visitedCoord, numVisited))                 // Shadow
+        color = float4(0, 0, 0, 1);
+    if (SampleDebugFontNumber3Digits(allCoord + 1, numLights) || SampleDebugFontNumber3Digits(visitedCoord + 1, numVisited))         // Text
+        color = float4(1, 1, 1, 1);
+    return color;
+}
 #endif
 
+half4 CalculateDebugLightingComplexityColor(in InputData inputData, in SurfaceData surfaceData)
+{
     const uint2 tileSize = uint2(32,32);
     const uint maxLights = 9;
     const float opacity = 0.8f;
 
     uint2 pixelCoord = uint2(inputData.normalizedScreenSpaceUV * _ScreenParams.xy);
     half3 base = surfaceData.albedo;
+
+#if USE_FORWARD_PLUS
+    // Count every light of the tile (no early out) and the lights the pixel visits with the early out of
+    // IsPixelBeforeRemainingAdditionalLights(), tested on the lights whose range doesn't reach the pixel.
+    uint numLights = 0;
+    uint numVisited = 0;
+    bool earlyOut = false;
+    half3 cameraToPixel = -inputData.viewDirectionWS;
+
+    ClusterIterator it;
+    if (ClusterInitPixel(inputData.positionCS.xy, it))
+    {
+        uint lightIndex;
+        [loop] while (ClusterNext(it, lightIndex))
+        {
+            numLights++;
+            if (earlyOut)
+                continue;
+
+            numVisited++;
+            float4 lightPositionInvRangeSq = ADDITIONAL_LIGHT_POSITION_INV_RANGE_SQ(lightIndex);
+            float3 lightVector = lightPositionInvRangeSq.xyz - inputData.positionWS;
+            if (dot(lightVector, lightVector) * lightPositionInvRangeSq.w >= 1.0)
+                earlyOut = IsPixelBeforeRemainingAdditionalLights(half3(lightVector), cameraToPixel, lightPositionInvRangeSq.w);
+        }
+    }
+
+    half4 overlay = half4(OverlayHeatMapEarlyOut(pixelCoord, tileSize, numLights, numVisited, maxLights, opacity));
+#else
+    // Assume a main light and add 1 to the additional lights.
+    int numLights = GetAdditionalLightsCount() + 1;
     half4 overlay = half4(OverlayHeatMap(pixelCoord, tileSize, numLights, maxLights, opacity));
+#endif
 
     uint2 tileCoord = (float2)pixelCoord / tileSize;
     uint2 offsetInTile = pixelCoord - tileCoord * tileSize;
