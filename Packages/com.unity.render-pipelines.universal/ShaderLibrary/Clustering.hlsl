@@ -5,9 +5,10 @@
 
 #if USE_FORWARD_PLUS
 
-// Each screen tile is a single uint4 holding up to MAX_LIGHTS_PER_TILE byte-sized entries, packed from the lowest byte
-// of x upwards. An entry is the index of the light in _AdditionalLightsData, where lights start at index 1. A zero byte
-// terminates the list, and all bytes after it are zero as well.
+// Each screen tile is a single uint4 in urp_Tiles holding up to 16 byte-sized entries, packed from the lowest byte of x
+// upwards. An entry is the index of the light in _AdditionalLightsData, where lights start at index 1. A zero byte
+// terminates the list, and all bytes after it are zero as well. When all 16 entries are used, the list continues with
+// up to 16 more entries in urp_TilesOverflow, at the same tile index (MAX_LIGHTS_PER_TILE in total).
 
 // Iterate a tile with a rotated loop, so the only test per light is at the bottom:
 //
@@ -26,6 +27,9 @@ struct ClusterIterator
     // Remaining entries of the tile. The entries of x are consumed first, from its lowest byte; when x is used up, the
     // next word moves in. After the end of the list all bytes are zero, so moving in more words keeps returning 0.
     uint4 entries;
+
+    // Index + 1 of the tile in urp_TilesOverflow while its list continues there, 0 otherwise.
+    uint overflowTile;
 };
 
 // internal
@@ -42,8 +46,12 @@ uint ClusterPop(inout ClusterIterator it)
 // internal
 ClusterIterator ClusterInitTile(uint2 tileCoord)
 {
+    uint tileIndex = tileCoord.y * URP_FP_TILE_COUNT_X + tileCoord.x;
+
     ClusterIterator it;
-    it.entries = urp_Tiles[tileCoord.y * URP_FP_TILE_COUNT_X + tileCoord.x];
+    it.entries = urp_Tiles[tileIndex];
+    // The 16th entry is the highest byte of w: when it is used, the list continues in urp_TilesOverflow.
+    it.overflowTile = (it.entries.w >> 24) != 0 ? tileIndex + 1 : 0;
     return it;
 }
 
@@ -75,6 +83,17 @@ bool ClusterNext(inout ClusterIterator it, out uint lightIndex)
     if (it.entries.x == 0)
         it.entries = uint4(it.entries.yzw, 0);
 
+    lightIndex = ClusterPop(it);
+    if (lightIndex != 0)
+        return true;
+
+    // End of the list, or of the first 16 entries of a full tile: then continue with its overflow entries. Nested here
+    // so the lights before the end only pay for the test above.
+    if (it.overflowTile == 0)
+        return false;
+
+    it.entries = urp_TilesOverflow[it.overflowTile - 1];
+    it.overflowTile = 0;
     lightIndex = ClusterPop(it);
     return lightIndex != 0;
 }

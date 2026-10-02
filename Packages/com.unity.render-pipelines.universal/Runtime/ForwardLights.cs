@@ -42,8 +42,11 @@ namespace UnityEngine.Rendering.Universal.Internal
         int2 m_TileResolution;
 
         JobHandle m_CullingHandle;
-        NativeArray<uint> m_TileLightIndices;
+        NativeArray<uint> m_TileLightIndices;   // urp_Tiles, followed by urp_TilesOverflow at m_OverflowWordOffset
         GraphicsBuffer m_TileBuffer;
+        GraphicsBuffer m_TileOverflowBuffer;
+        NativeArray<int> m_HasOverflow;         // Single element: whether any tile uses urp_TilesOverflow
+        int m_OverflowWordOffset;
         int m_UsedTileWords;
 
         // Additional lights are the visible SphericalLights, in the layout of the AdditionalLights constant buffer.
@@ -111,9 +114,13 @@ namespace UnityEngine.Rendering.Universal.Internal
 
         void CreateForwardPlusBuffers()
         {
-            m_TileLightIndices = new NativeArray<uint>(UniversalRenderPipeline.maxTiles * TileRangeExpansionJob.wordsPerTile, Allocator.Persistent);
+            m_OverflowWordOffset = UniversalRenderPipeline.maxTiles * TileRangeExpansionJob.wordsPerTile;
+            m_TileLightIndices = new NativeArray<uint>(2 * m_OverflowWordOffset, Allocator.Persistent);
             m_TileBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Constant, UniversalRenderPipeline.maxTiles, UnsafeUtility.SizeOf<uint4>());
             m_TileBuffer.name = "URP Tile Buffer";
+            m_TileOverflowBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Constant, UniversalRenderPipeline.maxTiles, UnsafeUtility.SizeOf<uint4>());
+            m_TileOverflowBuffer.name = "URP Tile Overflow Buffer";
+            m_HasOverflow = new NativeArray<int>(1, Allocator.Persistent);
 
             // Must match MAX_VISIBLE_LIGHTS + 1, which sizes the AdditionalLights constant buffer.
             int maxLights = UniversalRenderPipeline.maxVisibleAdditionalLights;
@@ -222,8 +229,11 @@ namespace UnityEngine.Rendering.Universal.Internal
                 m_UsedTileWords = m_TileResolution.x * m_TileResolution.y * viewCount * TileRangeExpansionJob.wordsPerTile;
                 unsafe
                 {
-                    UnsafeUtility.MemClear(m_TileLightIndices.GetUnsafePtr(), m_UsedTileWords * sizeof(uint));
+                    var tileLightIndices = (uint*)m_TileLightIndices.GetUnsafePtr();
+                    UnsafeUtility.MemClear(tileLightIndices, m_UsedTileWords * sizeof(uint));
+                    UnsafeUtility.MemClear(tileLightIndices + m_OverflowWordOffset, m_UsedTileWords * sizeof(uint));
                 }
+                m_HasOverflow[0] = 0;
 
                 if (lightCount == 0)
                 {
@@ -260,6 +270,8 @@ namespace UnityEngine.Rendering.Universal.Internal
                 {
                     tileRanges = tileRanges,
                     tileLightIndices = m_TileLightIndices,
+                    overflowWordOffset = m_OverflowWordOffset,
+                    hasOverflow = m_HasOverflow,
                     rangesPerLight = rangesPerLight,
                     lightCount = lightCount,
                     tileResolution = m_TileResolution,
@@ -334,8 +346,15 @@ namespace UnityEngine.Rendering.Universal.Internal
                     {
                         // Only the tiles in use are uploaded, the shader never reads past them.
                         var usedTiles = m_UsedTileWords / TileRangeExpansionJob.wordsPerTile;
-                        m_TileBuffer.SetData(m_TileLightIndices.Reinterpret<uint4>(UnsafeUtility.SizeOf<uint>()), 0, 0, usedTiles);
+                        var tiles = m_TileLightIndices.Reinterpret<uint4>(UnsafeUtility.SizeOf<uint>());
+                        m_TileBuffer.SetData(tiles, 0, 0, usedTiles);
                         cmd.SetGlobalConstantBuffer(m_TileBuffer, "urp_TileBuffer", 0, UniversalRenderPipeline.maxTiles * UnsafeUtility.SizeOf<uint4>());
+
+                        // The overflow tiles are only read for tiles using all 16 entries of urp_Tiles: skip the upload
+                        // when there are none. The buffer is still bound, its stale content is never read.
+                        if (m_HasOverflow[0] != 0)
+                            m_TileOverflowBuffer.SetData(tiles, m_OverflowWordOffset / TileRangeExpansionJob.wordsPerTile, 0, usedTiles);
+                        cmd.SetGlobalConstantBuffer(m_TileOverflowBuffer, "urp_TileOverflowBuffer", 0, UniversalRenderPipeline.maxTiles * UnsafeUtility.SizeOf<uint4>());
 
                         // Only the visible lights are uploaded, the shader never reads past them.
                         int visibleLightCount = m_VisibleLightCount;
@@ -422,6 +441,9 @@ namespace UnityEngine.Rendering.Universal.Internal
                 m_TileLightIndices.Dispose();
                 m_TileBuffer.Dispose();
                 m_TileBuffer = null;
+                m_TileOverflowBuffer.Dispose();
+                m_TileOverflowBuffer = null;
+                m_HasOverflow.Dispose();
                 m_LightData.Dispose();
                 m_LightDataBuffer.Dispose();
                 m_LightDataBuffer = null;

@@ -26,7 +26,7 @@
 
 // Match with values in UniversalRenderPipeline.cs
 // Forward+ tiles: each tile is one uint4 holding up to 16 byte-sized light indices (lights start at 1, 0 = no light).
-#define MAX_LIGHTS_PER_TILE 16
+#define MAX_LIGHTS_PER_TILE 32
 #define MAX_TILES 4096
 // Forward+ reflection probes are not binned into tiles, so only a single probe is kept.
 #define MAX_REFLECTION_PROBES 1
@@ -152,8 +152,13 @@ CBUFFER_END
 
 #if USE_FORWARD_PLUS
 
+// Each tile holds up to 16 light indices in urp_Tiles. When all 16 are used, the next 16 lights of the tile continue at the
+// same tile index in urp_TilesOverflow.
 CBUFFER_START(urp_TileBuffer)
         uint4 urp_Tiles[MAX_TILES];
+CBUFFER_END
+CBUFFER_START(urp_TileOverflowBuffer)
+        uint4 urp_TilesOverflow[MAX_TILES];
 CBUFFER_END
 
 TEXTURE2D(urp_ReflProbes_Atlas);
