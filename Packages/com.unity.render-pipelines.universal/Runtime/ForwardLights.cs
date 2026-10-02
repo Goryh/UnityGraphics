@@ -28,6 +28,7 @@ namespace UnityEngine.Rendering.Universal.Internal
             public static int AdditionalLights;     // Constant buffer holding the additional (spherical) light arrays.
             public static readonly int _FPParams0 = Shader.PropertyToID("_FPParams0");
             public static readonly int _FPTileCountX = Shader.PropertyToID("_FPTileCountX");
+            public static readonly int urp_TilesOverflow = Shader.PropertyToID("urp_TilesOverflow");
         }
 
         const string k_SetupLightConstants = "Setup Light Constants";
@@ -118,7 +119,7 @@ namespace UnityEngine.Rendering.Universal.Internal
             m_TileLightIndices = new NativeArray<uint>(2 * m_OverflowWordOffset, Allocator.Persistent);
             m_TileBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Constant, UniversalRenderPipeline.maxTiles, UnsafeUtility.SizeOf<uint4>());
             m_TileBuffer.name = "URP Tile Buffer";
-            m_TileOverflowBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Constant, UniversalRenderPipeline.maxTiles, UnsafeUtility.SizeOf<uint4>());
+            m_TileOverflowBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, UniversalRenderPipeline.maxTiles, UnsafeUtility.SizeOf<uint4>());
             m_TileOverflowBuffer.name = "URP Tile Overflow Buffer";
             m_HasOverflow = new NativeArray<int>(1, Allocator.Persistent);
 
@@ -362,7 +363,7 @@ namespace UnityEngine.Rendering.Universal.Internal
                         // when there are none. The buffer is still bound, its stale content is never read.
                         if (m_HasOverflow[0] != 0)
                             m_TileOverflowBuffer.SetData(tiles, m_OverflowWordOffset / TileRangeExpansionJob.wordsPerTile, 0, usedTiles);
-                        cmd.SetGlobalConstantBuffer(m_TileOverflowBuffer, "urp_TileOverflowBuffer", 0, usedTileBytes);
+                        cmd.SetGlobalBuffer(LightConstantBuffer.urp_TilesOverflow, m_TileOverflowBuffer);
 
                         // Only the visible lights are uploaded, the shader never reads past them.
                         int visibleLightCount = m_VisibleLightCount;

@@ -153,13 +153,13 @@ CBUFFER_END
 #if USE_FORWARD_PLUS
 
 // Each tile holds up to 16 light indices in urp_Tiles. When all 16 are used, the next 16 lights of the tile continue at the
-// same tile index in urp_TilesOverflow.
+// same tile index in urp_TilesOverflow. The overflow tiles are a structured buffer rather than a second 64 KB constant
+// buffer: they are rarely read (once at the end of a full tile), and a constant buffer that size makes Unity's Metal
+// constant buffer management duplicate it, which exhausted memory in Xcode frame captures.
 CBUFFER_START(urp_TileBuffer)
         uint4 urp_Tiles[MAX_TILES];
 CBUFFER_END
-CBUFFER_START(urp_TileOverflowBuffer)
-        uint4 urp_TilesOverflow[MAX_TILES];
-CBUFFER_END
+StructuredBuffer<uint4> urp_TilesOverflow;
 
 TEXTURE2D(urp_ReflProbes_Atlas);
 float urp_ReflProbes_Count;
