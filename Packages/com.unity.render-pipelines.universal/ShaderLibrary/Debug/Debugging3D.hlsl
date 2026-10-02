@@ -252,17 +252,17 @@ half3 CalculateDebugShadowCascadeColor(in InputData inputData)
 #if USE_FORWARD_PLUS
 // Heat map tile showing two light counts: the background color and the bottom number show the lights visited with the
 // Forward+ early out, the top number shows every light of the tile (the lights visited without it).
-float4 OverlayHeatMapEarlyOut(uint2 pixCoord, uint2 tileSize, uint numLights, uint numVisited, uint maxN, float opacity)
+// localCoord is the pixel position inside its Forward+ tile (y up) and tileSize the tile size, both in pixels.
+float4 OverlayHeatMapEarlyOut(int2 localCoord, int tileSize, uint numLights, uint numVisited, uint maxN, float opacity)
 {
     int colorIndex = 1 + (int)floor(10 * (log2((float)numVisited + 0.1f) / log2(float(maxN))));
     colorIndex = clamp(colorIndex, 0, DEBUG_COLORS_COUNT - 1);
     float4 col = kDebugColorGradient[colorIndex];
     float4 color = float4(PositivePow(col.rgb, 2.2), opacity * col.a);
 
-    // Pixel y goes up: the first line is the upper one.
-    int2 localCoord = int2(pixCoord & (tileSize - 1));
-    int2 allCoord = localCoord - int2(tileSize.x / 4 + 1, tileSize.y / 2 - 1);
-    int2 visitedCoord = localCoord - int2(tileSize.x / 4 + 1, 1);
+    // Two lines of up to 3 digits (17x9 pixels each) centered in the tile, the first one above the center.
+    int2 allCoord = localCoord - int2(tileSize / 2 - 9, tileSize / 2 - 3);
+    int2 visitedCoord = localCoord - int2(tileSize / 2 - 9, tileSize / 2 - 15);
 
     if (SampleDebugFontNumber3Digits(allCoord, numLights) || SampleDebugFontNumber3Digits(visitedCoord, numVisited))                 // Shadow
         color = float4(0, 0, 0, 1);
@@ -307,18 +307,27 @@ half4 CalculateDebugLightingComplexityColor(in InputData inputData, in SurfaceDa
         }
     }
 
-    half4 overlay = half4(OverlayHeatMapEarlyOut(pixelCoord, tileSize, numLights, numVisited, maxLights, opacity));
+    // Draw the numbers and borders on the Forward+ tiles themselves, which have a variable size (a multiple of 16
+    // pixels) and live in render target pixels, so they line up with the colors.
+    float2 tile = ClusterPixelToTile(inputData.positionCS.xy);
+    float forwardPlusTileSize = rcp(URP_FP_PIXEL_TO_TILE_SCALE.x);
+    int2 localCoord = int2(frac(tile) * forwardPlusTileSize);
+    int tileSizePixels = int(forwardPlusTileSize + 0.5);
+
+    half4 overlay = half4(OverlayHeatMapEarlyOut(localCoord, tileSizePixels, numLights, numVisited, maxLights, opacity));
+    if (any(localCoord == 0 || localCoord == tileSizePixels - 1))
+        overlay = half4(1, 1, 1, 0.4f);
 #else
     // Assume a main light and add 1 to the additional lights.
     int numLights = GetAdditionalLightsCount() + 1;
     half4 overlay = half4(OverlayHeatMap(pixelCoord, tileSize, numLights, maxLights, opacity));
-#endif
 
     uint2 tileCoord = (float2)pixelCoord / tileSize;
     uint2 offsetInTile = pixelCoord - tileCoord * tileSize;
     bool border = any(offsetInTile == 0 || offsetInTile == tileSize.x - 1);
     if (border)
         overlay = half4(1, 1, 1, 0.4f);
+#endif
 
     return half4(lerp(base.rgb, overlay.rgb, overlay.a), 1);
 }

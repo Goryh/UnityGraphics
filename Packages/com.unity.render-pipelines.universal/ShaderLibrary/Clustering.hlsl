@@ -48,13 +48,20 @@ ClusterIterator ClusterInitTile(uint2 tileCoord)
 }
 
 // internal
+// Tile coordinates of a pixel, given its SV_Position: the integer part is the tile, the fractional part the position
+// inside it, with y going up. Applies the y flip for the current render target orientation.
+float2 ClusterPixelToTile(float2 positionCS)
+{
+    return positionCS * URP_FP_PIXEL_TO_TILE_SCALE + URP_FP_PIXEL_TO_TILE_OFFSET;
+}
+
+// internal
 // Finds the tile of a pixel, given its SV_Position, and returns its first light index. Returns false if the tile has
 // no lights. Goes from the pixel position straight to tile coordinates with a single multiply-add, which also applies
 // the y flip for the current render target orientation.
 bool ClusterInitPixel(float2 positionCS, out ClusterIterator it)
 {
-    float2 tile = positionCS * URP_FP_PIXEL_TO_TILE_SCALE + URP_FP_PIXEL_TO_TILE_OFFSET;
-    it = ClusterInitTile(uint2(tile));
+    it = ClusterInitTile(uint2(ClusterPixelToTile(positionCS)));
     return it.entries.x != 0;
 }
 
