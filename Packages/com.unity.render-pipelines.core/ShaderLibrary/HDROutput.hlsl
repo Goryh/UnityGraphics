@@ -108,26 +108,25 @@ float3 PQToLinear(float3 value)
 // Note that Rec2020 and Rec2100 share the same color space.
 // This section should be kept in sync with Runtime\Utilities\ColorSpaceUtils.cs
 
+static const float3x3 Rec709ToRec2020Mat = float3x3(
+    0.627402, 0.329292, 0.043306,
+    0.069095, 0.919544, 0.011360,
+    0.016394, 0.088028, 0.895578
+);
+
+static const float3x3 Rec709ToP3D65Mat = float3x3(
+    0.822462, 0.177538, 0.000000,
+    0.033194, 0.966806, 0.000000,
+    0.017083, 0.072397, 0.910520
+);
+
 float3 RotateRec709ToRec2020(float3 Rec709Input)
 {
-    static const float3x3 Rec709ToRec2020Mat = float3x3(
-
-        0.627402, 0.329292, 0.043306,
-        0.069095, 0.919544, 0.011360,
-        0.016394, 0.088028, 0.895578
-    );
-
     return mul(Rec709ToRec2020Mat, Rec709Input);
 }
 
 float3 RotateRec709ToP3D65(float3 Rec709Input)
 {
-    static const float3x3 Rec709ToP3D65Mat = float3x3(
-        0.822462, 0.177538, 0.000000,
-        0.033194, 0.966806, 0.000000,
-        0.017083, 0.072397, 0.910520
-    );
-
     return mul(Rec709ToP3D65Mat, Rec709Input);
 }
 
@@ -171,6 +170,24 @@ float3 RotateRec709ToOutputSpace(float3 Rec709Input)
     else if (_HDRColorspace == HDRCOLORSPACE_P3D65)
     {
         return RotateRec709ToP3D65(Rec709Input);
+    }
+    else // HDRCOLORSPACE_REC709
+    {
+        return Rec709Input;
+    }
+}
+
+// Same as RotateRec709ToOutputSpace, in real precision for the display referred colors (UI).
+real3 RotateRec709ToOutputSpaceReal(real3 Rec709Input)
+{
+    UNITY_BRANCH
+    if (_HDRColorspace == HDRCOLORSPACE_REC2020)
+    {
+        return mul((real3x3)Rec709ToRec2020Mat, Rec709Input);
+    }
+    else UNITY_BRANCH if (_HDRColorspace == HDRCOLORSPACE_P3D65)
+    {
+        return mul((real3x3)Rec709ToP3D65Mat, Rec709Input);
     }
     else // HDRCOLORSPACE_REC709
     {
@@ -448,31 +465,34 @@ float3 GTSApproxLinToPQ(float3 inputCol)
 }
 
 // IMPORTANT! This wants the input in [0...10000] range, if the method requires scaling, it is done inside this function.
-float3 OETF(float3 inputCol, float maxNits)
+// The encoding is selected with real branches, so that only the active one is evaluated.
+// The linear encodings are computed in real precision, the PQ one always in full precision (the curve is too steep for half).
+real3 OETF(real3 inputCol, real maxNits)
 {
+    UNITY_BRANCH
     if (_HDREncoding == HDRENCODING_LINEAR)
     {
         // IMPORTANT! This assumes that the maximum nits is always higher or same as the reference white. Seems like a sensible choice, but revisit if we find weird use cases (just min with the the max nits).
         // We need to map the value 1 to [reference white] nits.
-        return inputCol / SDR_REF_WHITE;
+        return inputCol * (1.0 / SDR_REF_WHITE);
     }
-    else if (_HDREncoding == HDRENCODING_PQ)
+    else UNITY_BRANCH if (_HDREncoding == HDRENCODING_PQ)
     {
         #if OETF_CHOICE == PRECISE_PQ
-        return LinearToPQ(inputCol);
+        return LinearToPQ(float3(inputCol));
         #elif OETF_CHOICE == ISS_APPROX_PQ
-        return PatryApproxLinToPQ(inputCol * 0.01f);
+        return PatryApproxLinToPQ(float3(inputCol) * 0.01f);
         #elif OETF_CHOICE == GTS_APPROX_PQ
-        return GTSApproxLinToPQ(inputCol * 0.01f);
+        return GTSApproxLinToPQ(float3(inputCol) * 0.01f);
         #endif
     }
-    else if (_HDREncoding == HDRENCODING_GAMMA22)
+    else UNITY_BRANCH if (_HDREncoding == HDRENCODING_GAMMA22)
     {
-        return LinearToGamma22(inputCol / (float3)maxNits); // Usually used to encode into UNORM output 0->1 where 1 is the max display brightness, this will be very device specific so use our maxNits.
+        return LinearToGamma22(inputCol * rcp(maxNits)); // Usually used to encode into UNORM output 0->1 where 1 is the max display brightness, this will be very device specific so use our maxNits.
     }
-    else if (_HDREncoding == HDRENCODING_S_RGB)
+    else UNITY_BRANCH if (_HDREncoding == HDRENCODING_S_RGB)
     {
-        return inputCol / (float3)maxNits; // Usually used to encode into UNORM output 0->1 where 1 is the max display brightness, this will be very device specific so use our maxNits.
+        return inputCol * rcp(maxNits); // Usually used to encode into UNORM output 0->1 where 1 is the max display brightness, this will be very device specific so use our maxNits.
     }
     else
     {
@@ -817,20 +837,19 @@ float3 HDRMappingACES(float3 aces, float hdrBoost, float minNits, float maxNits,
 // UI Related functions
 // --------------------------------
 
-float3 ProcessUIForHDR(float3 uiSample, float paperWhite, float maxNits)
+real3 ProcessUIForHDR(real3 uiSample, real paperWhite, real maxNits)
 {
-    uiSample.rgb = RotateRec709ToOutputSpace(uiSample.rgb);
+    uiSample.rgb = RotateRec709ToOutputSpaceReal(uiSample.rgb);
     uiSample.rgb *= paperWhite;
 
     return uiSample.rgb;
 }
 
-float3 SceneUIComposition(float4 uiSample, float3 sceneColor, float paperWhite, float maxNits)
+real3 SceneUIComposition(real4 uiSample, real3 sceneColor, real paperWhite, real maxNits)
 {
-    // Undo the pre multiply.
-    uiSample.rgb = uiSample.rgb / (uiSample.a == 0.0f ? 1.0 : uiSample.a);
-    uiSample.rgb = ProcessUIForHDR(uiSample.rgb, paperWhite, maxNits);
-    return uiSample.rgb * uiSample.a + sceneColor.rgb * (1.0f - uiSample.a);
+    // The UI color is premultiplied and its conversion to the output space is linear,
+    // so it is converted as is instead of undoing the premultiply and applying it again.
+    return ProcessUIForHDR(uiSample.rgb, paperWhite, maxNits) + sceneColor.rgb * (1.0 - uiSample.a);
 }
 
 // --------------------------------------------------------------------------------------------

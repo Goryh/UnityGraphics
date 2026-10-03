@@ -50,7 +50,7 @@ Shader "Hidden/Universal Render Pipeline/UberPost"
         TEXTURE2D_HALF(_InternalLut);
         TEXTURE2D(_UserLut);
         TEXTURE2D_HALF(_BlueNoise_Texture);
-        TEXTURE2D_X(_OverlayUITexture);
+        TEXTURE2D_X_HALF(_OverlayUITexture);
 
         #if _UBER_FRAMEBUFFER_FETCH
         FRAMEBUFFER_INPUT_X_HALF(0);
@@ -347,7 +347,7 @@ Shader "Hidden/Universal Render Pipeline/UberPost"
                 // HDR UI composition
                 UNITY_BRANCH if(_HDR_OVERLAY)
                 {
-                    float4 uiSample = SAMPLE_TEXTURE2D_X(_OverlayUITexture, sampler_PointClamp, input.texcoord);
+                    half4 uiSample = SAMPLE_TEXTURE2D_X(_OverlayUITexture, sampler_PointClamp, input.texcoord);
                     color.rgb = SceneUIComposition(uiSample, color.rgb, PaperWhite, MaxNits);
                 }
             }
