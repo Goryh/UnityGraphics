@@ -88,13 +88,13 @@ real4 GetLinearToSRGB(real4 c)
 // Shared functions for uber & fast path (on-tile)
 // These should only process an input color, don't sample in neighbor pixels!
 
-half3 ApplyVignette(half3 input, float2 uv, float2 center, float intensity, float2 roundness, float smoothness, half3 color)
+half3 ApplyVignette(half3 input, float2 uv, float2 center, half intensity, half2 roundness, half smoothness, half3 color)
 {
     center = UnityStereoTransformScreenSpaceTex(center);
-    float2 dist = abs(uv - center) * intensity;
+    // Only the uv delta needs full precision
+    half2 dist = half2(abs(uv - center)) * (intensity * roundness);
 
-    dist *= roundness;
-    float vfactor = pow(saturate(1.0 - dot(dist, dist)), smoothness);
+    half vfactor = pow(saturate(1.0 - dot(dist, dist)), smoothness);
     return input * lerp(color, (1.0).xxx, vfactor);
 }
 
@@ -110,91 +110,78 @@ half3 ApplyTonemap(half3 input)
     return saturate(input);
 }
 
-half3 ApplyColorGrading(half3 input, float postExposure, TEXTURE2D_PARAM(lutTex, lutSampler), float3 lutParams, TEXTURE2D_PARAM(userLutTex, userLutSampler), float3 userLutParams, float userLutContrib)
+// Half precision LinearToLogC() for the per-pixel LUT lookup, with the exposure folded into the scale.
+// The clamp keeps the result in [0;1] (the LogC range ends at ~58.85) and absorbs a half overflow of the scaled input.
+half3 LinearToLogCLutSpace(half3 x, half exposure)
 {
-    // Artist request to fine tune exposure in post without affecting bloom, dof etc
-    input *= postExposure;
-
-    // HDR Grading:
-    //   - Apply internal LogC LUT
-    //   - (optional) Clamp result & apply user LUT
-    #if _HDR_GRADING
-    {
-        float3 inputLutSpace = saturate(LinearToLogC(input)); // LUT space is in LogC
-        input = ApplyLut2D(TEXTURE2D_ARGS(lutTex, lutSampler), inputLutSpace, lutParams);
-
- /*       UNITY_BRANCH
-        if (userLutContrib > 0.0)
-        {
-            input = saturate(input);
-            input.rgb = GetLinearToSRGB(input.rgb); // In LDR do the lookup in sRGB for the user LUT
-            half3 outLut = ApplyLut2D(TEXTURE2D_ARGS(userLutTex, userLutSampler), input, userLutParams);
-            input = lerp(input, outLut, userLutContrib);
-            input.rgb = GetSRGBToLinear(input.rgb);
-        }*/
-    }
-
-    // LDR Grading:
-    //   - Apply tonemapping (result is clamped)
-    //   - (optional) Apply user LUT
-    //   - Apply internal linear LUT
-    #else
-    {
-        input = ApplyTonemap(input);
-
-/*        UNITY_BRANCH
-        if (userLutContrib > 0.0)
-        {
-            input.rgb = GetLinearToSRGB(input.rgb); // In LDR do the lookup in sRGB for the user LUT
-            half3 outLut = ApplyLut2D(TEXTURE2D_ARGS(userLutTex, userLutSampler), input, userLutParams);
-            input = lerp(input, outLut, userLutContrib);
-            input.rgb = GetSRGBToLinear(input.rgb);
-        }*/
-
-        input = ApplyLut2D(TEXTURE2D_ARGS(lutTex, lutSampler), input, lutParams);
-    }
-    #endif
-
-    return input;
+    const half logCMax = 327.0; // LogC.a * 58.85 + LogC.b
+    return LogC.c * log10(clamp(x * (exposure * LogC.a) + LogC.b, LogC.b, logCMax)) + LogC.d;
 }
 
-half3 ApplyGrain(half3 input, float2 uv, TEXTURE2D_PARAM(GrainTexture, GrainSampler), float intensity, float response, float2 scale, float2 offset, float oneOverPaperWhite)
+// Half precision ApplyLut2D(), split so that the caller samples the LUT (as a half texture).
+// scaleOffset = (1 / lut_width, 1 / lut_height, lut_height - 1)
+// Returns the uv in the first slice, the second one is at uv + float2(scaleOffset.y, 0).
+float2 GetLut2DUV(half3 uvw, float3 scaleOffset, out half sliceLerp)
 {
-    // Grain in range [0;1] with neutral at 0.5
-    half grain = SAMPLE_TEXTURE2D(GrainTexture, GrainSampler, uv * scale + offset).w;
+    half slice = uvw.z * half(scaleOffset.z);
+    half shift = floor(slice);
+    sliceLerp = slice - shift;
 
+    // The strip is too wide to be addressed in half precision
+    float2 uv = float2(uvw.xy) * (scaleOffset.z * scaleOffset.xy) + scaleOffset.xy * 0.5;
+    uv.x += shift * scaleOffset.y;
+    return uv;
+}
+
+// grain in range [0;1] with neutral at 0.5
+half3 ApplyGrain(half3 input, half grain, half intensity, half response, half oneOverPaperWhite)
+{
     // Remap [-1;1]
     grain = (grain - 0.5) * 2.0;
 
     // Noisiness response curve based on scene luminance
-    float lum = Luminance(input);
+    half lum = Luminance(input);
     #ifdef HDR_INPUT
     lum *= oneOverPaperWhite;
     #endif
     lum = 1.0 - sqrt(lum);
     lum = lerp(1.0, lum, response);
 
-    return input + input * grain * intensity * lum;
+    return input + input * (grain * intensity * lum);
+}
+
+half3 ApplyGrain(half3 input, float2 uv, TEXTURE2D_PARAM(GrainTexture, GrainSampler), float intensity, float response, float2 scale, float2 offset, float oneOverPaperWhite)
+{
+    half grain = SAMPLE_TEXTURE2D(GrainTexture, GrainSampler, uv * scale + offset).w;
+    return ApplyGrain(input, grain, intensity, response, oneOverPaperWhite);
+}
+
+// noise in range [0;1], uniformly distributed
+half3 ApplyDithering(half3 input, half noise, half paperWhite, half oneOverPaperWhite)
+{
+    // Symmetric triangular distribution on [-1,1] with maximal density at 0
+    noise = noise * 2.0 - 1.0;
+    half noiseSign = noise >= 0.0 ? 1.0 : -1.0;
+    noise = noiseSign * (1.0 - sqrt(1.0 - abs(noise))) * (1.0 / 255.0);
+
+#if UNITY_COLORSPACE_GAMMA
+    input += noise;
+#elif defined(HDR_INPUT)
+    input = input * oneOverPaperWhite;
+    // Do not call GetSRGBToLinear/GetLinearToSRGB because the "fast" version will clamp values!
+    input = SRGBToLinear(LinearToSRGB(input) + noise);
+    input = input * paperWhite;
+#else
+    input = GetSRGBToLinear(GetLinearToSRGB(input) + noise);
+#endif
+
+    return input;
 }
 
 half3 ApplyDithering(half3 input, float2 uv, TEXTURE2D_PARAM(BlueNoiseTexture, BlueNoiseSampler), float2 scale, float2 offset, float paperWhite, float oneOverPaperWhite)
 {
-    // Symmetric triangular distribution on [-1,1] with maximal density at 0
-    float noise = SAMPLE_TEXTURE2D(BlueNoiseTexture, BlueNoiseSampler, uv * scale + offset).a * 2.0 - 1.0;
-    noise = FastSign(noise) * (1.0 - sqrt(1.0 - abs(noise)));
-
-#if UNITY_COLORSPACE_GAMMA
-    input += noise / 255.0;
-#elif defined(HDR_INPUT)
-    input = input * oneOverPaperWhite;
-    // Do not call GetSRGBToLinear/GetLinearToSRGB because the "fast" version will clamp values!
-    input = SRGBToLinear(LinearToSRGB(input) + noise / 255.0);
-    input = input * paperWhite;
-#else
-    input = GetSRGBToLinear(GetLinearToSRGB(input) + noise /255.0);
-#endif
-
-    return input;
+    half noise = SAMPLE_TEXTURE2D(BlueNoiseTexture, BlueNoiseSampler, uv * scale + offset).a;
+    return ApplyDithering(input, noise, paperWhite, oneOverPaperWhite);
 }
 
 #if _FXAA

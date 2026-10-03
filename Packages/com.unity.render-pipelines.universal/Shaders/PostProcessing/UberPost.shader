@@ -46,10 +46,10 @@ Shader "Hidden/Universal Render Pipeline/UberPost"
 
         TEXTURE2D_X(_Bloom_Texture);
         TEXTURE2D(_LensDirt_Texture);
-        TEXTURE2D(_Grain_Texture);
-        TEXTURE2D(_InternalLut);
+        TEXTURE2D_HALF(_Grain_Texture);
+        TEXTURE2D_HALF(_InternalLut);
         TEXTURE2D(_UserLut);
-        TEXTURE2D(_BlueNoise_Texture);
+        TEXTURE2D_HALF(_BlueNoise_Texture);
         TEXTURE2D_X(_OverlayUITexture);
 
         #if _UBER_FRAMEBUFFER_FETCH
@@ -66,11 +66,11 @@ Shader "Hidden/Universal Render Pipeline/UberPost"
         float4 _Distortion_Params2;
         float _Chroma_Params;
         half4 _Vignette_Params1;
-        float4 _Vignette_Params2;
+        half4 _Vignette_Params2;
     #ifdef USING_STEREO_MATRICES
         float4 _Vignette_ParamsXR;
     #endif
-        float2 _Grain_Params;
+        half2 _Grain_Params;
         float4 _Grain_TilingParams;
         float4 _Bloom_Texture_TexelSize;
         float4 _Dithering_Params;
@@ -103,7 +103,7 @@ Shader "Hidden/Universal Render Pipeline/UberPost"
         #define VignetteRoundness       _Vignette_Params2.xy
 
         #define LutParams               _Lut_Params.xyz
-        #define PostExposure            _Lut_Params.w
+        #define PostExposure            half(_Lut_Params.w)
         #define UserLutParams           _UserLut_Params.xyz
         #define UserLutContribution     _UserLut_Params.w
 
@@ -122,6 +122,61 @@ Shader "Hidden/Universal Render Pipeline/UberPost"
         #define MaxNits                 _HDROutputLuminanceParams.y
         #define PaperWhite              _HDROutputLuminanceParams.z
         #define OneOverPaperWhite       _HDROutputLuminanceParams.w
+
+        half3 SampleInternalLut(half3 lutSpace)
+        {
+            half sliceLerp;
+            float2 lutUV = GetLut2DUV(lutSpace, LutParams, sliceLerp);
+            half3 slice0 = SAMPLE_TEXTURE2D_LOD(_InternalLut, sampler_LinearClamp, lutUV, 0.0).rgb;
+            half3 slice1 = SAMPLE_TEXTURE2D_LOD(_InternalLut, sampler_LinearClamp, lutUV + float2(_Lut_Params.y, 0.0), 0.0).rgb;
+            return lerp(slice0, slice1, sliceLerp);
+        }
+
+        half3 ApplyColorGrading(half3 input)
+        {
+            // HDR Grading:
+            //   - Apply internal LogC LUT
+            //   - (optional) Clamp result & apply user LUT
+            #if _HDR_GRADING
+            {
+                // Artist request to fine tune exposure in post without affecting bloom, dof etc
+                // (the exposure is applied along with the LogC conversion)
+                input = SampleInternalLut(LinearToLogCLutSpace(input, PostExposure)); // LUT space is in LogC
+
+         /*       UNITY_BRANCH
+                if (UserLutContribution > 0.0)
+                {
+                    input = saturate(input);
+                    input.rgb = GetLinearToSRGB(input.rgb); // In LDR do the lookup in sRGB for the user LUT
+                    half3 outLut = ApplyLut2D(TEXTURE2D_ARGS(_UserLut, sampler_LinearClamp), input, UserLutParams);
+                    input = lerp(input, outLut, UserLutContribution);
+                    input.rgb = GetSRGBToLinear(input.rgb);
+                }*/
+            }
+
+            // LDR Grading:
+            //   - Apply tonemapping (result is clamped)
+            //   - (optional) Apply user LUT
+            //   - Apply internal linear LUT
+            #else
+            {
+                input = ApplyTonemap(input * PostExposure);
+
+        /*        UNITY_BRANCH
+                if (UserLutContribution > 0.0)
+                {
+                    input.rgb = GetLinearToSRGB(input.rgb); // In LDR do the lookup in sRGB for the user LUT
+                    half3 outLut = ApplyLut2D(TEXTURE2D_ARGS(_UserLut, sampler_LinearClamp), input, UserLutParams);
+                    input = lerp(input, outLut, UserLutContribution);
+                    input.rgb = GetSRGBToLinear(input.rgb);
+                }*/
+
+                input = SampleInternalLut(input);
+            }
+            #endif
+
+            return input;
+        }
 
         float2 DistortUV(float2 uv)
         {
@@ -253,12 +308,13 @@ Shader "Hidden/Universal Render Pipeline/UberPost"
 
             // Color grading is always enabled when post-processing/uber is active
             {
-                color = ApplyColorGrading(color, PostExposure, TEXTURE2D_ARGS(_InternalLut, sampler_LinearClamp), LutParams, TEXTURE2D_ARGS(_UserLut, sampler_LinearClamp), UserLutParams, UserLutContribution);
+                color = ApplyColorGrading(color);
             }
 
             #if _FILM_GRAIN
             {
-                color = ApplyGrain(color, uv, TEXTURE2D_ARGS(_Grain_Texture, sampler_LinearRepeat), GrainIntensity, GrainResponse, GrainScale, GrainOffset, OneOverPaperWhite);
+                half grain = SAMPLE_TEXTURE2D(_Grain_Texture, sampler_LinearRepeat, uv * GrainScale + GrainOffset).w;
+                color = ApplyGrain(color, grain, GrainIntensity, GrainResponse, OneOverPaperWhite);
             }
             #endif
 
@@ -278,7 +334,8 @@ Shader "Hidden/Universal Render Pipeline/UberPost"
 
             #if _DITHERING
             {
-                color = ApplyDithering(color, uv, TEXTURE2D_ARGS(_BlueNoise_Texture, sampler_PointRepeat), DitheringScale, DitheringOffset, PaperWhite, OneOverPaperWhite);
+                half noise = SAMPLE_TEXTURE2D(_BlueNoise_Texture, sampler_PointRepeat, uv * DitheringScale + DitheringOffset).a;
+                color = ApplyDithering(color, noise, PaperWhite, OneOverPaperWhite);
                 // Assume color > 0 and prevent 0 - ditherNoise.
                 // Negative colors can cause problems if fed back to the postprocess via render to FP16 texture.
                 color = max(color, 0);
