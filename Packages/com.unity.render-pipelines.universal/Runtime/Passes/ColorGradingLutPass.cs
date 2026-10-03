@@ -108,10 +108,12 @@ namespace UnityEngine.Rendering.Universal.Internal
         public void ConfigureDescriptor(in UniversalPostProcessingData postProcessingData, out RenderTextureDescriptor descriptor, out FilterMode filterMode)
         {
             bool hdr = postProcessingData.gradingMode == ColorGradingMode.HighDynamicRange;
-            int lutHeight = postProcessingData.lutSize;
-            int lutWidth = lutHeight * lutHeight;
+            int lutSize = postProcessingData.lutSize;
             var format = hdr ? m_HdrLutFormat : m_LdrLutFormat;
-            descriptor = new RenderTextureDescriptor(lutWidth, lutHeight, format, 0);
+            // The LUT is a 3D texture, so that it's sampled with a single trilinear tap.
+            descriptor = new RenderTextureDescriptor(lutSize, lutSize, format, 0);
+            descriptor.dimension = TextureDimension.Tex3D;
+            descriptor.volumeDepth = lutSize;
             descriptor.vrUsage = VRTextureUsage.None; // We only need one for both eyes in VR
 
             filterMode = FilterMode.Bilinear;
@@ -155,8 +157,7 @@ namespace UnityEngine.Rendering.Universal.Internal
                 renderingData.commandBuffer.SetFoveatedRenderingMode(FoveatedRenderingMode.Disabled);
 #endif
 
-            CoreUtils.SetRenderTarget(renderingData.commandBuffer, m_InternalLut, RenderBufferLoadAction.DontCare, RenderBufferStoreAction.Store, ClearFlag.None, Color.clear);
-            ExecutePass(CommandBufferHelpers.GetRasterCommandBuffer(renderingData.commandBuffer), m_PassData, m_InternalLut);
+            ExecutePass(renderingData.commandBuffer, m_PassData, m_InternalLut);
         }
 
         private class PassData
@@ -170,7 +171,7 @@ namespace UnityEngine.Rendering.Universal.Internal
             internal TextureHandle internalLut;
         }
 
-        private static void ExecutePass(RasterCommandBuffer cmd, PassData passData, RTHandle internalLutTarget)
+        private static void ExecutePass(CommandBuffer cmd, PassData passData, RTHandle internalLutTarget)
         {
             var lutBuilderLdr = passData.lutBuilderLdr;
             var lutBuilderHdr = passData.lutBuilderHdr;
@@ -291,8 +292,14 @@ namespace UnityEngine.Rendering.Universal.Internal
 
                 passData.cameraData.xr.StopSinglePass(cmd);
 
-                // Render the lut.
-                Blitter.BlitTexture(cmd, internalLutTarget, Vector2.one, material, 0);
+                // Render the lut, one slice of the 3D texture at a time. The builders output the 2D strip layout
+                // (the slices side by side), so a slice is rendered by scaling the uvs to its part of the strip.
+                float sliceScale = 1f / lutHeight;
+                for (int slice = 0; slice < lutHeight; slice++)
+                {
+                    cmd.SetRenderTarget(new RenderTargetIdentifier(internalLutTarget.nameID, 0, CubemapFace.Unknown, slice), RenderBufferLoadAction.DontCare, RenderBufferStoreAction.Store);
+                    Blitter.BlitTexture(cmd, new Vector4(sliceScale, 1f, slice * sliceScale, 0f), material, 0);
+                }
 
                 passData.cameraData.xr.StartSinglePass(cmd);
             }
@@ -322,16 +329,17 @@ namespace UnityEngine.Rendering.Universal.Internal
             else
             {
                 // No UniversalAdditionalCameraData on this camera: fall back to a transient per frame LUT.
-                internalColorLut = UniversalRenderer.CreateRenderGraphTexture(renderGraph, lutDesc, "_InternalGradingLut", true, filterMode);
+                internalColorLut = UniversalRenderer.CreateRenderGraphTexture(renderGraph, lutDesc, "_InternalGradingLut", false, filterMode);
             }
 
-            using (var builder = renderGraph.AddRasterRenderPass<PassData>(passName, out var passData, profilingSampler))
+            // Unsafe pass: every slice of the 3D LUT is bound as the render target in turn.
+            using (var builder = renderGraph.AddUnsafePass<PassData>(passName, out var passData, profilingSampler))
             {
                 passData.cameraData = cameraData;
                 passData.postProcessingData = postProcessingData;
 
                 passData.internalLut = internalColorLut;
-                builder.SetRenderAttachment(internalColorLut, 0, AccessFlags.WriteAll);
+                builder.UseTexture(internalColorLut, AccessFlags.WriteAll);
                 passData.lutBuilderLdr = m_LutBuilderLdr;
                 passData.lutBuilderHdr = m_LutBuilderHdr;
                 passData.allowColorGradingACESHDR = m_AllowColorGradingACESHDR;
@@ -339,9 +347,9 @@ namespace UnityEngine.Rendering.Universal.Internal
                 //  TODO RENDERGRAPH: culling? force culling off for testing
                 builder.AllowPassCulling(false);
 
-                builder.SetRenderFunc((PassData data, RasterGraphContext context) =>
+                builder.SetRenderFunc((PassData data, UnsafeGraphContext context) =>
                 {
-                    ExecutePass(context.cmd, data, data.internalLut);
+                    ExecutePass(CommandBufferHelpers.GetNativeCommandBuffer(context.cmd), data, data.internalLut);
                 });
 
                 return;

@@ -47,7 +47,7 @@ Shader "Hidden/Universal Render Pipeline/UberPost"
         TEXTURE2D_X(_Bloom_Texture);
         TEXTURE2D(_LensDirt_Texture);
         TEXTURE2D_HALF(_Grain_Texture);
-        TEXTURE2D_HALF(_InternalLut);
+        TEXTURE3D_HALF(_InternalLut);
         TEXTURE2D(_UserLut);
         TEXTURE2D_HALF(_BlueNoise_Texture);
         TEXTURE2D_X_HALF(_OverlayUITexture);
@@ -57,7 +57,7 @@ Shader "Hidden/Universal Render Pipeline/UberPost"
         #endif
 
         float4 _BloomTexture_TexelSize;
-        float4 _Lut_Params;
+        float4 _Lut_Params; // x: (lut_size - 1) / lut_size, y: 0.5 / lut_size, z: unused, w: post exposure
         float4 _UserLut_Params;
         float4 _Bloom_Params;
         float4 _LensDirt_Params;
@@ -102,7 +102,7 @@ Shader "Hidden/Universal Render Pipeline/UberPost"
         #define VignetteSmoothness      _Vignette_Params2.w
         #define VignetteRoundness       _Vignette_Params2.xy
 
-        #define LutParams               _Lut_Params.xyz
+        #define LutScaleOffset          half2(_Lut_Params.xy)
         #define PostExposure            half(_Lut_Params.w)
         #define UserLutParams           _UserLut_Params.xyz
         #define UserLutContribution     _UserLut_Params.w
@@ -123,13 +123,10 @@ Shader "Hidden/Universal Render Pipeline/UberPost"
         #define PaperWhite              _HDROutputLuminanceParams.z
         #define OneOverPaperWhite       _HDROutputLuminanceParams.w
 
-        half3 SampleInternalLut(half3 lutSpace)
+        // lutCoords: the 3D LUT coordinates, already remapped to the texel centers
+        half3 SampleInternalLut(half3 lutCoords)
         {
-            half sliceLerp;
-            float2 lutUV = GetLut2DUV(lutSpace, LutParams, sliceLerp);
-            half3 slice0 = SAMPLE_TEXTURE2D_LOD(_InternalLut, sampler_LinearClamp, lutUV, 0.0).rgb;
-            half3 slice1 = SAMPLE_TEXTURE2D_LOD(_InternalLut, sampler_LinearClamp, lutUV + float2(_Lut_Params.y, 0.0), 0.0).rgb;
-            return lerp(slice0, slice1, sliceLerp);
+            return SAMPLE_TEXTURE3D_LOD(_InternalLut, sampler_LinearClamp, lutCoords, 0.0).rgb;
         }
 
         half3 ApplyColorGrading(half3 input)
@@ -141,7 +138,7 @@ Shader "Hidden/Universal Render Pipeline/UberPost"
             {
                 // Artist request to fine tune exposure in post without affecting bloom, dof etc
                 // (the exposure is applied along with the LogC conversion)
-                input = SampleInternalLut(LinearToLogCLutSpace(input, PostExposure)); // LUT space is in LogC
+                input = SampleInternalLut(LinearToLogCLutSpace(input, PostExposure, LutScaleOffset)); // LUT space is in LogC
 
          /*       UNITY_BRANCH
                 if (UserLutContribution > 0.0)
@@ -171,7 +168,7 @@ Shader "Hidden/Universal Render Pipeline/UberPost"
                     input.rgb = GetSRGBToLinear(input.rgb);
                 }*/
 
-                input = SampleInternalLut(input);
+                input = SampleInternalLut(input * LutScaleOffset.x + LutScaleOffset.y);
             }
             #endif
 

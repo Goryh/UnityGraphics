@@ -1916,12 +1916,11 @@ namespace UnityEngine.Rendering.Universal
         {
             var material = m_Materials.uber;
             bool hdrGrading = postProcessingData.gradingMode == ColorGradingMode.HighDynamicRange;
-            int lutHeight = postProcessingData.lutSize;
-            int lutWidth = lutHeight * lutHeight;
+            float lutSize = postProcessingData.lutSize;
 
             // Source material setup
             float postExposureLinear = Mathf.Pow(2f, m_ColorAdjustments.postExposure.value);
-            Vector4 lutParams = new Vector4(1f / lutWidth, 1f / lutHeight, lutHeight - 1f, postExposureLinear);
+            Vector4 lutParams = new Vector4((lutSize - 1f) / lutSize, 0.5f / lutSize, 0f, postExposureLinear);
 
             TextureHandle userLutTexture = TryGetCachedUserLutTextureHandle(renderGraph);
             Vector4 userLutParams = !m_ColorLookup.IsActive()

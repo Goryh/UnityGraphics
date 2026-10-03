@@ -116,26 +116,15 @@ half3 ApplyTonemap(half3 input)
 }
 
 // Half precision LinearToLogC() for the per-pixel LUT lookup, with the exposure folded into the scale.
-// The clamp keeps the result in [0;1] (the LogC range ends at ~58.85) and absorbs a half overflow of the scaled input.
-half3 LinearToLogCLutSpace(half3 x, half exposure)
+// The clamp keeps LogC in [0;1] (its range ends at ~58.85) and absorbs a half overflow of the scaled input.
+// lutScaleOffset = ((lut_size - 1) / lut_size, 0.5 / lut_size): the remap of [0;1] to the texel centers of the 3D LUT,
+// folded into the LogC scale and offset so that the result is the LUT coordinate.
+half3 LinearToLogCLutSpace(half3 x, half exposure, half2 lutScaleOffset)
 {
     const half logCMax = 327.0; // LogC.a * 58.85 + LogC.b
-    return LogC.c * log10(clamp(x * (exposure * LogC.a) + LogC.b, LogC.b, logCMax)) + LogC.d;
-}
-
-// Half precision ApplyLut2D(), split so that the caller samples the LUT (as a half texture).
-// scaleOffset = (1 / lut_width, 1 / lut_height, lut_height - 1)
-// Returns the uv in the first slice, the second one is at uv + float2(scaleOffset.y, 0).
-float2 GetLut2DUV(half3 uvw, float3 scaleOffset, out half sliceLerp)
-{
-    half slice = uvw.z * half(scaleOffset.z);
-    half shift = floor(slice);
-    sliceLerp = slice - shift;
-
-    // The strip is too wide to be addressed in half precision
-    float2 uv = float2(uvw.xy) * (scaleOffset.z * scaleOffset.xy) + scaleOffset.xy * 0.5;
-    uv.x += shift * scaleOffset.y;
-    return uv;
+    half scale = LogC.c * lutScaleOffset.x;
+    half offset = LogC.d * lutScaleOffset.x + lutScaleOffset.y;
+    return scale * log10(clamp(x * (exposure * LogC.a) + LogC.b, LogC.b, logCMax)) + offset;
 }
 
 // grain in range [0;1] with neutral at 0.5
