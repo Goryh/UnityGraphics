@@ -88,14 +88,19 @@ real4 GetLinearToSRGB(real4 c)
 // Shared functions for uber & fast path (on-tile)
 // These should only process an input color, don't sample in neighbor pixels!
 
+// dist: offset from the vignette center, scaled by the intensity and the roundness
+half3 ApplyVignette(half3 input, half2 dist, half smoothness, half3 color)
+{
+    half vfactor = pow(saturate(1.0 - dot(dist, dist)), smoothness);
+    return input * lerp(color, (1.0).xxx, vfactor);
+}
+
 half3 ApplyVignette(half3 input, float2 uv, float2 center, half intensity, half2 roundness, half smoothness, half3 color)
 {
     center = UnityStereoTransformScreenSpaceTex(center);
     // Only the uv delta needs full precision
-    half2 dist = half2(abs(uv - center)) * (intensity * roundness);
-
-    half vfactor = pow(saturate(1.0 - dot(dist, dist)), smoothness);
-    return input * lerp(color, (1.0).xxx, vfactor);
+    half2 dist = half2(uv - center) * (intensity * roundness);
+    return ApplyVignette(input, dist, smoothness, color);
 }
 
 half3 ApplyTonemap(half3 input)
@@ -166,13 +171,15 @@ half3 ApplyDithering(half3 input, half noise, half paperWhite, half oneOverPaper
 
 #if UNITY_COLORSPACE_GAMMA
     input += noise;
-#elif defined(HDR_INPUT)
-    input = input * oneOverPaperWhite;
-    // Do not call GetSRGBToLinear/GetLinearToSRGB because the "fast" version will clamp values!
-    input = SRGBToLinear(LinearToSRGB(input) + noise);
-    input = input * paperWhite;
 #else
-    input = GetSRGBToLinear(GetLinearToSRGB(input) + noise);
+    // The noise is applied in gamma 2.0 as a fast stand-in for sRGB: a sqrt and a mul instead of two pow() per channel,
+    // and unlike the "fast" sRGB conversions it doesn't clamp the HDR values.
+  #if defined(HDR_INPUT)
+    // (sqrt(input / paperWhite) + noise)^2 * paperWhite
+    noise *= sqrt(paperWhite);
+  #endif
+    half3 encoded = max(sqrt(max(input, 0.0)) + noise, 0.0);
+    input = encoded * encoded;
 #endif
 
     return input;

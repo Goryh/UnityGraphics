@@ -178,6 +178,33 @@ Shader "Hidden/Universal Render Pipeline/UberPost"
             return input;
         }
 
+        struct UberVaryings
+        {
+            float4 positionCS : SV_POSITION;
+            float4 texcoord   : TEXCOORD0; // xy: screen uv, zw: offset from the vignette center (scaled by the intensity and the roundness)
+            float4 noiseUV    : TEXCOORD1; // xy: film grain uv, zw: dithering uv
+            UNITY_VERTEX_OUTPUT_STEREO
+        };
+
+        // Same as Vert from Blit.hlsl, plus everything that is linear in the screen uv.
+        // The effect keywords are fragment only, so all of it is always computed here.
+        UberVaryings VertUberPost(Attributes input)
+        {
+            UberVaryings output;
+            UNITY_SETUP_INSTANCE_ID(input);
+            UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(output);
+
+            float2 uv = DYNAMIC_SCALING_APPLY_SCALEBIAS(GetFullScreenTriangleTexCoord(input.vertexID));
+
+            output.positionCS  = GetFullScreenTriangleVertexPosition(input.vertexID);
+            output.texcoord.xy = uv;
+            output.texcoord.zw = (uv - 0.5) * (VignetteIntensity * VignetteRoundness);
+            output.noiseUV.xy  = uv * GrainScale + GrainOffset;
+            output.noiseUV.zw  = uv * DitheringScale + DitheringOffset;
+
+            return output;
+        }
+
         float2 DistortUV(float2 uv)
         {
             // Note: this variant should never be set with XR
@@ -205,12 +232,21 @@ Shader "Hidden/Universal Render Pipeline/UberPost"
             return uv;
         }
 
-        half4 FragUberPost(Varyings input) : SV_Target
+        half4 FragUberPost(UberVaryings input) : SV_Target
         {
             UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(input);
 
-            float2 uv = SCREEN_COORD_APPLY_SCALEBIAS(UnityStereoTransformScreenSpaceTex(input.texcoord));
+            float2 uv = SCREEN_COORD_APPLY_SCALEBIAS(UnityStereoTransformScreenSpaceTex(input.texcoord.xy));
             float2 uvDistorted = DistortUV(uv);
+
+            // The interpolated coordinates are only valid for the unmodified screen uv
+            #if defined(SCREEN_COORD_OVERRIDE)
+              float2 uvGrain = uv * GrainScale + GrainOffset;
+              float2 uvDithering = uv * DitheringScale + DitheringOffset;
+            #else
+              float2 uvGrain = input.noiseUV.xy;
+              float2 uvDithering = input.noiseUV.zw;
+            #endif
 
             // NOTE: Hlsl specifies missing input.a to fill 1 (0 for .rgb).
             // InputColor is a "bottom" layer for alpha output.
@@ -295,6 +331,7 @@ Shader "Hidden/Universal Render Pipeline/UberPost"
             UNITY_BRANCH
             if (VignetteIntensity > 0)
             {
+            #if defined(USING_STEREO_MATRICES) || defined(SCREEN_COORD_OVERRIDE) || _DISTORTION
             #ifdef USING_STEREO_MATRICES
                 // With XR, the views can use asymmetric FOV which will have the center of each
                 // view be at a different location.
@@ -304,6 +341,10 @@ Shader "Hidden/Universal Render Pipeline/UberPost"
             #endif
 
                 color = ApplyVignette(color, uvDistorted, VignetteCenter, VignetteIntensity, VignetteRoundness, VignetteSmoothness, VignetteColor);
+            #else
+                // The offset from the center comes from the vertex shader
+                color = ApplyVignette(color, half2(input.texcoord.zw), VignetteSmoothness, VignetteColor);
+            #endif
             }
 
             // Color grading is always enabled when post-processing/uber is active
@@ -313,7 +354,7 @@ Shader "Hidden/Universal Render Pipeline/UberPost"
 
             #if _FILM_GRAIN
             {
-                half grain = SAMPLE_TEXTURE2D(_Grain_Texture, sampler_LinearRepeat, uv * GrainScale + GrainOffset).w;
+                half grain = SAMPLE_TEXTURE2D(_Grain_Texture, sampler_LinearRepeat, uvGrain).w;
                 color = ApplyGrain(color, grain, GrainIntensity, GrainResponse, OneOverPaperWhite);
             }
             #endif
@@ -334,7 +375,7 @@ Shader "Hidden/Universal Render Pipeline/UberPost"
 
             #if _DITHERING
             {
-                half noise = SAMPLE_TEXTURE2D(_BlueNoise_Texture, sampler_PointRepeat, uv * DitheringScale + DitheringOffset).a;
+                half noise = SAMPLE_TEXTURE2D(_BlueNoise_Texture, sampler_PointRepeat, uvDithering).a;
                 color = ApplyDithering(color, noise, PaperWhite, OneOverPaperWhite);
                 // Assume color > 0 and prevent 0 - ditherNoise.
                 // Negative colors can cause problems if fed back to the postprocess via render to FP16 texture.
@@ -347,7 +388,7 @@ Shader "Hidden/Universal Render Pipeline/UberPost"
                 // HDR UI composition
                 UNITY_BRANCH if(_HDR_OVERLAY)
                 {
-                    half4 uiSample = SAMPLE_TEXTURE2D_X(_OverlayUITexture, sampler_PointClamp, input.texcoord);
+                    half4 uiSample = SAMPLE_TEXTURE2D_X(_OverlayUITexture, sampler_PointClamp, input.texcoord.xy);
                     color.rgb = SceneUIComposition(uiSample, color.rgb, PaperWhite, MaxNits);
                 }
             }
@@ -402,7 +443,7 @@ Shader "Hidden/Universal Render Pipeline/UberPost"
             Name "UberPost"
 
             HLSLPROGRAM
-                #pragma vertex Vert
+                #pragma vertex VertUberPost
                 #pragma fragment FragUberPost
             ENDHLSL
         }
