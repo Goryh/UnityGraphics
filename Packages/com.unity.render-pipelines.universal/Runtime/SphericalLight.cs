@@ -27,7 +27,7 @@ namespace UnityEngine.Rendering.Universal
         public Color color
         {
             get => m_Color;
-            set => m_Color = value;
+            set{ m_Color = value; UpdateLight(); }
         }
 
         /// <summary>
@@ -36,7 +36,7 @@ namespace UnityEngine.Rendering.Universal
         public float intensity
         {
             get => m_Intensity;
-            set => m_Intensity = Mathf.Max(0.0f, value);
+            set{ m_Intensity = Mathf.Max(0.0f, value); UpdateLight(); }
         }
 
         /// <summary>
