@@ -344,6 +344,8 @@ namespace UnityEngine.Rendering.Universal
         // so for this frame the camera color and depth attachments are treated like the backbuffer.
         bool m_UseOnTileUberPost;
 
+        static readonly bool s_IsQualcommGPU = SystemInfo.graphicsDeviceVendorID == 0x5143;
+
         /// <summary>
         /// Checks that everything recorded between the first write of the camera color and the Uber post pass merges into one
         /// native render pass with the backbuffer. If anything could break that native render pass, the scene would be rendered
@@ -1792,7 +1794,9 @@ namespace UnityEngine.Rendering.Universal
                 // On-tile Uber post: a native render pass has a single depth attachment. Draw the UI with the camera depth, which is
                 // not used after the Uber pass anymore, so the UI stays in the native render pass shared with the scene and the backbuffer.
                 // The UI resets depth and stencil itself before drawing, and its masks need the stencil.
-                if (m_UseOnTileUberPost && GraphicsFormatUtility.IsStencilFormat(cameraDepthAttachmentFormat))
+                // Not on Qualcomm Adreno: rewriting the scene depth in a later subpass hangs the GPU (seen on Adreno 730, likely
+                // the LRZ buffer), so there the UI keeps the backbuffer depth in its own native render pass.
+                if (m_UseOnTileUberPost && GraphicsFormatUtility.IsStencilFormat(cameraDepthAttachmentFormat) && !s_IsQualcommGPU)
                     depthBuffer = resourceData.cameraDepth;
 
                 if (resolveToDebugScreen)
