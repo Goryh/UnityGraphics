@@ -344,7 +344,31 @@ namespace UnityEngine.Rendering.Universal
         // so for this frame the camera color and depth attachments are treated like the backbuffer.
         bool m_UseOnTileUberPost;
 
-        static readonly bool s_IsQualcommGPU = SystemInfo.graphicsDeviceVendorID == 0x5143;
+        // Adreno 730 (Galaxy S22) and 740 hang when the UI rewrites the scene depth in the merged pass. Other Adreno GPUs
+        // tested fine. The series is read from the device name ("Adreno (TM) 730").
+        static readonly bool s_IsAdrenoWithUIDepthIssue = IsAdrenoWithUIDepthIssue();
+
+        static bool IsAdrenoWithUIDepthIssue()
+        {
+            if (SystemInfo.graphicsDeviceVendorID != 0x5143)
+                return false;
+
+            string name = SystemInfo.graphicsDeviceName;
+            int i = name.IndexOf("Adreno", StringComparison.OrdinalIgnoreCase);
+            if (i < 0)
+                return false;
+
+            // Skip to the first digit after "Adreno", e.g. past " (TM) ".
+            i += "Adreno".Length;
+            while (i < name.Length && !char.IsDigit(name[i]))
+                i++;
+
+            int series = 0;
+            while (i < name.Length && char.IsDigit(name[i]))
+                series = series * 10 + (name[i++] - '0');
+
+            return series == 730 || series == 740;
+        }
 
         /// <summary>
         /// Checks that everything recorded between the first write of the camera color and the Uber post pass merges into one
@@ -1794,9 +1818,9 @@ namespace UnityEngine.Rendering.Universal
                 // On-tile Uber post: a native render pass has a single depth attachment. Draw the UI with the camera depth, which is
                 // not used after the Uber pass anymore, so the UI stays in the native render pass shared with the scene and the backbuffer.
                 // The UI resets depth and stencil itself before drawing, and its masks need the stencil.
-                // Not on Qualcomm Adreno: rewriting the scene depth in a later subpass hangs the GPU (seen on Adreno 730, likely
-                // the LRZ buffer), so there the UI keeps the backbuffer depth in its own native render pass.
-                if (m_UseOnTileUberPost && GraphicsFormatUtility.IsStencilFormat(cameraDepthAttachmentFormat) && !s_IsQualcommGPU)
+                // Not on Adreno 730/740: rewriting the scene depth in a later subpass hangs the GPU (likely the LRZ buffer),
+                // so there the UI keeps the backbuffer depth in its own native render pass.
+                if (m_UseOnTileUberPost && GraphicsFormatUtility.IsStencilFormat(cameraDepthAttachmentFormat) && !s_IsAdrenoWithUIDepthIssue)
                     depthBuffer = resourceData.cameraDepth;
 
                 if (resolveToDebugScreen)
