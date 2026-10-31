@@ -189,6 +189,7 @@ namespace UnityEngine.Rendering.Universal.Internal
                 var splitToning = stack.GetComponent<SplitToning>();
                 var tonemapping = stack.GetComponent<Tonemapping>();
                 var whiteBalance = stack.GetComponent<WhiteBalance>();
+                var cubeLookup = stack.GetComponent<CubeLookup>();
 
                 bool hdr = passData.postProcessingData.gradingMode == ColorGradingMode.HighDynamicRange;
 
@@ -265,6 +266,19 @@ namespace UnityEngine.Rendering.Universal.Internal
                 // Tonemapping (baked into the lut for HDR)
                 if (hdr)
                 {
+                    // Cube lookup, HDR only. The texture is always bound, the shader skips it at zero contribution.
+                    if (cubeLookup.IsActive())
+                    {
+                        int cubeSize = cubeLookup.texture.value.width;
+                        material.SetTexture(ShaderConstants._CubeLut, cubeLookup.texture.value);
+                        material.SetVector(ShaderConstants._CubeLut_Params, new Vector4((cubeSize - 1f) / cubeSize, 0.5f / cubeSize, cubeLookup.contribution.value, 0f));
+                    }
+                    else
+                    {
+                        material.SetTexture(ShaderConstants._CubeLut, CoreUtils.blackVolumeTexture);
+                        material.SetVector(ShaderConstants._CubeLut_Params, Vector4.zero);
+                    }
+
                     material.shaderKeywords = null;
 
                     switch (tonemapping.mode.value)
@@ -368,6 +382,17 @@ namespace UnityEngine.Rendering.Universal.Internal
             bool isHDROutputActive = cameraData.isHDROutputActive;
             hash.Append(ref isHDROutputActive);
 
+            // The volume stack only tracks which texture the cube lookup uses, not its content: a reimport of the
+            // .cube updates the same texture in place.
+            var cubeLut = VolumeManager.instance.stack?.GetComponent<CubeLookup>()?.texture.value;
+            if (cubeLut != null)
+            {
+                int cubeLutId = cubeLut.GetInstanceID();
+                uint cubeLutUpdateCount = cubeLut.updateCount;
+                hash.Append(ref cubeLutId);
+                hash.Append(ref cubeLutUpdateCount);
+            }
+
             if (isHDROutputActive)
             {
                 int hdrDisplayColorGamut = (int)cameraData.hdrDisplayColorGamut;
@@ -418,6 +443,8 @@ namespace UnityEngine.Rendering.Universal.Internal
             public static readonly int _CurveHueVsSat = Shader.PropertyToID("_CurveHueVsSat");
             public static readonly int _CurveLumVsSat = Shader.PropertyToID("_CurveLumVsSat");
             public static readonly int _CurveSatVsSat = Shader.PropertyToID("_CurveSatVsSat");
+            public static readonly int _CubeLut = Shader.PropertyToID("_CubeLut");
+            public static readonly int _CubeLut_Params = Shader.PropertyToID("_CubeLut_Params");
         }
     }
 }

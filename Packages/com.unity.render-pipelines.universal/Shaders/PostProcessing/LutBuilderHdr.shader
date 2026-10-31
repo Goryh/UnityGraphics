@@ -31,6 +31,9 @@ Shader "Hidden/Universal Render Pipeline/LutBuilderHdr"
         float4 _SplitHighlights;    // xyz: color, w: unused
         float4 _HDROutputLuminanceParams; // xy: brightness min/max, z: paper white brightness, w: 1.0 / brightness max
         float4 _HDROutputGradingParams; // x: eetf/range reduction mode, y: hue shift, zw: unused
+        float4 _CubeLut_Params;     // x: (size - 1) / size, y: 0.5 / size, z: contribution, w: unused
+
+        TEXTURE3D(_CubeLut);
 
         TEXTURE2D(_CurveMaster);
         TEXTURE2D(_CurveRed);
@@ -52,6 +55,23 @@ Shader "Hidden/Universal Render Pipeline/LutBuilderHdr"
         {
             float x = SAMPLE_TEXTURE2D(curve, sampler_LinearClamp, float2(t, 0.0)).x;
             return saturate(x);
+        }
+
+        // Cube lookup (see CubeLutImporter): the 3D texture is laid out in the same LogC space as this LUT, for
+        // its coordinates as well as its content, so it's a single trilinear tap between two LogC conversions.
+        float3 ApplyCubeLut(float3 colorLinear)
+        {
+            float contribution = _CubeLut_Params.z;
+
+            UNITY_BRANCH
+            if (contribution > 0.0)
+            {
+                float3 uvw = saturate(LinearToLogC(colorLinear)) * _CubeLut_Params.x + _CubeLut_Params.y;
+                float3 lutColor = LogCToLinear(SAMPLE_TEXTURE3D_LOD(_CubeLut, sampler_LinearClamp, uvw, 0.0).rgb);
+                colorLinear = lerp(colorLinear, max(0.0, lutColor), contribution);
+            }
+
+            return colorLinear;
         }
 
         float3 RotateToColorGradeOutputSpace(float3 gradedColor)
@@ -158,6 +178,9 @@ Shader "Hidden/Universal Render Pipeline/LutBuilderHdr"
             // Global saturation
             luma = GetLuminance(colorLinear);
             colorLinear = luma.xxx + (_HueSatCon.yyy * satMult) * (colorLinear - luma.xxx);
+
+            // Cube lookup, before the curves so they keep working on top of it
+            colorLinear = ApplyCubeLut(colorLinear);
 
             // YRGB curves
             // Conceptually these need to be in range [0;1] and from an artist-workflow perspective
