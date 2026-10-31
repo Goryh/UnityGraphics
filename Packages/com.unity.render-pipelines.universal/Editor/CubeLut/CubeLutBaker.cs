@@ -23,6 +23,8 @@ namespace UnityEditor.Rendering.Universal
         {
             public CubeLutEncoding inputEncoding;
             public CubeLutEncoding outputEncoding;
+            public CubeLutGamut inputGamut;
+            public CubeLutGamut outputGamut;
             public int size;
             public CubeLutExtrapolation extrapolation;
             public int polynomialOrder;
@@ -45,6 +47,12 @@ namespace UnityEditor.Rendering.Universal
             public double Max() => Math.Max(x, Math.Max(y, z));
 
             public static Double3 operator *(Double3 a, double b) => new Double3(a.x * b, a.y * b, a.z * b);
+
+            // Row major 3x3 matrix times this vector.
+            public Double3 Transform(double[,] m) => new Double3(
+                m[0, 0] * x + m[0, 1] * y + m[0, 2] * z,
+                m[1, 0] * x + m[1, 1] * y + m[1, 2] * z,
+                m[2, 0] * x + m[2, 1] * y + m[2, 2] * z);
         }
 
         public static Color[] Bake(CubeLutFile cube, in Settings settings)
@@ -64,7 +72,13 @@ namespace UnityEditor.Rendering.Universal
                     Math.Max(0.0, Encodings.Decode(CubeLutEncoding.UnityLogC, g / (n - 1.0))),
                     Math.Max(0.0, Encodings.Decode(CubeLutEncoding.UnityLogC, b / (n - 1.0))));
 
-                var output = baker.Evaluate(linear);
+                // The ray extrapolation and the input range work in the input gamut of the .cube. Every gamut
+                // supported contains Rec709, so the converted color stays positive.
+                var output = baker.Evaluate(linear.Transform(baker.inputFromRec709));
+
+                // Rec709 can't hold every color of a wider output gamut: those come out negative, clamp them
+                // like the LUT builder does with its result.
+                output = new Double3(Math.Max(0.0, output.x), Math.Max(0.0, output.y), Math.Max(0.0, output.z));
 
                 colors[r + g * n + b * n * n] = new Color(
                     (float)Encodings.Encode(CubeLutEncoding.UnityLogC, output.x),
@@ -94,10 +108,16 @@ namespace UnityEditor.Rendering.Universal
             readonly double[] m_Coefficients;
             readonly double[,] m_Normal;
 
+            public readonly double[,] inputFromRec709;
+            readonly double[,] m_Rec709FromOutput;
+
             public Baker(CubeLutFile cube, in Settings settings)
             {
                 m_Cube = cube;
                 m_Settings = settings;
+
+                inputFromRec709 = Gamuts.Conversion(CubeLutGamut.Rec709, settings.inputGamut);
+                m_Rec709FromOutput = Gamuts.Conversion(settings.outputGamut, CubeLutGamut.Rec709);
 
                 m_RangeMax = double.MaxValue;
                 for (int c = 0; c < 3; c++)
@@ -113,7 +133,7 @@ namespace UnityEditor.Rendering.Universal
                 m_Normal = new double[settings.polynomialOrder, settings.polynomialOrder + 1];
             }
 
-            // Linear in, linear out.
+            // Linear in the input gamut in, linear Rec709 out.
             public Double3 Evaluate(in Double3 linear)
             {
                 double max = linear.Max();
@@ -199,7 +219,7 @@ namespace UnityEditor.Rendering.Universal
                 return y;
             }
 
-            // Linear in, linear out, within the input range of the .cube.
+            // Linear in the input gamut in, linear Rec709 out, within the input range of the .cube.
             Double3 Sample(in Double3 linear)
             {
                 var cube = m_Cube;
@@ -214,7 +234,7 @@ namespace UnityEditor.Rendering.Universal
                 for (int c = 0; c < 3; c++)
                     output[c] = Encodings.Decode(m_Settings.outputEncoding, output[c]);
 
-                return output;
+                return output.Transform(m_Rec709FromOutput);
             }
 
             Double3 SampleTrilinear(in Double3 uvw)
@@ -301,6 +321,13 @@ namespace UnityEditor.Rendering.Universal
             const double k_LogC3Cut = 0.010591, k_LogC3A = 5.555556, k_LogC3B = 0.052272, k_LogC3C = 0.247190,
                 k_LogC3D = 0.385537, k_LogC3E = 5.367655, k_LogC3F = 0.092809;
 
+            // DaVinci Intermediate.
+            const double k_DaVinciA = 0.0075, k_DaVinciB = 7.0, k_DaVinciC = 0.07329248, k_DaVinciM = 10.44426855,
+                k_DaVinciLinCut = 0.00262409, k_DaVinciLogCut = 0.02740668;
+
+            // Panasonic V-Log.
+            const double k_VLogCut = 0.01, k_VLogB = 0.00873, k_VLogC = 0.241514, k_VLogD = 0.598206;
+
             public static double Encode(CubeLutEncoding encoding, double x)
             {
                 switch (encoding)
@@ -320,6 +347,12 @@ namespace UnityEditor.Rendering.Universal
 
                     case CubeLutEncoding.ACEScct:
                         return x <= 0.0078125 ? 10.5402377416545 * x + 0.0729055341958355 : (Math.Log(x, 2.0) + 9.72) / 17.52;
+
+                    case CubeLutEncoding.DaVinciIntermediate:
+                        return x <= k_DaVinciLinCut ? x * k_DaVinciM : (Math.Log(x + k_DaVinciA, 2.0) + k_DaVinciB) * k_DaVinciC;
+
+                    case CubeLutEncoding.VLog:
+                        return x < k_VLogCut ? 5.6 * x + 0.125 : k_VLogC * Math.Log10(x + k_VLogB) + k_VLogD;
 
                     case CubeLutEncoding.SLog3:
                         return x >= 0.01125
@@ -355,6 +388,12 @@ namespace UnityEditor.Rendering.Universal
                             ? (v - 0.0729055341958355) / 10.5402377416545
                             : Math.Pow(2.0, v * 17.52 - 9.72);
 
+                    case CubeLutEncoding.DaVinciIntermediate:
+                        return v <= k_DaVinciLogCut ? v / k_DaVinciM : Math.Pow(2.0, v / k_DaVinciC - k_DaVinciB) - k_DaVinciA;
+
+                    case CubeLutEncoding.VLog:
+                        return v < 0.181 ? (v - 0.125) / 5.6 : Math.Pow(10.0, (v - k_VLogD) / k_VLogC) - k_VLogB;
+
                     case CubeLutEncoding.SLog3:
                         return v >= 171.2102946929 / 1023.0
                             ? Math.Pow(10.0, (v * 1023.0 - 420.0) / 261.5) * (0.18 + 0.01) - 0.01
@@ -363,6 +402,116 @@ namespace UnityEditor.Rendering.Universal
                     default:
                         throw new ArgumentOutOfRangeException(nameof(encoding));
                 }
+            }
+        }
+        internal static class Gamuts
+        {
+            static readonly double[] k_D65 = { 0.3127, 0.3290 };
+            static readonly double[] k_AcesWhite = { 0.32168, 0.33767 };
+
+            // xy chromaticities of the red, green and blue primaries, then of the white point.
+            static double[][] Chromaticities(CubeLutGamut gamut)
+            {
+                switch (gamut)
+                {
+                    case CubeLutGamut.Rec709: return new[] { new[] { 0.640, 0.330 }, new[] { 0.300, 0.600 }, new[] { 0.150, 0.060 }, k_D65 };
+                    case CubeLutGamut.Rec2020: return new[] { new[] { 0.708, 0.292 }, new[] { 0.170, 0.797 }, new[] { 0.131, 0.046 }, k_D65 };
+                    case CubeLutGamut.P3D65: return new[] { new[] { 0.680, 0.320 }, new[] { 0.265, 0.690 }, new[] { 0.150, 0.060 }, k_D65 };
+                    case CubeLutGamut.ArriWideGamut3: return new[] { new[] { 0.6840, 0.3130 }, new[] { 0.2210, 0.8480 }, new[] { 0.0861, -0.1020 }, k_D65 };
+                    case CubeLutGamut.SGamut3: return new[] { new[] { 0.730, 0.280 }, new[] { 0.140, 0.855 }, new[] { 0.100, -0.050 }, k_D65 };
+                    case CubeLutGamut.SGamut3Cine: return new[] { new[] { 0.766, 0.275 }, new[] { 0.225, 0.800 }, new[] { 0.089, -0.087 }, k_D65 };
+                    case CubeLutGamut.VGamut: return new[] { new[] { 0.730, 0.280 }, new[] { 0.165, 0.840 }, new[] { 0.100, -0.030 }, k_D65 };
+                    case CubeLutGamut.DaVinciWideGamut: return new[] { new[] { 0.8000, 0.3130 }, new[] { 0.1682, 0.9877 }, new[] { 0.0790, -0.1155 }, k_D65 };
+                    case CubeLutGamut.ACES_AP1: return new[] { new[] { 0.713, 0.293 }, new[] { 0.165, 0.830 }, new[] { 0.128, 0.044 }, k_AcesWhite };
+                    default: throw new ArgumentOutOfRangeException(nameof(gamut));
+                }
+            }
+
+            // Linear RGB of 'from' to linear RGB of 'to', through XYZ. A white point other than D65 is Bradford
+            // adapted, so the white of every gamut maps to the white of Rec709.
+            public static double[,] Conversion(CubeLutGamut from, CubeLutGamut to)
+            {
+                if (from == to)
+                    return Identity();
+
+                var xyzFromSource = Multiply(Adaptation(Chromaticities(from)[3]), RgbToXyz(from));
+                var xyzFromTarget = Multiply(Adaptation(Chromaticities(to)[3]), RgbToXyz(to));
+                return Multiply(Invert(xyzFromTarget), xyzFromSource);
+            }
+
+            static double[,] RgbToXyz(CubeLutGamut gamut)
+            {
+                var c = Chromaticities(gamut);
+                var m = new double[3, 3];
+                for (int i = 0; i < 3; i++)
+                {
+                    var p = XyToXyz(c[i]);
+                    for (int row = 0; row < 3; row++)
+                        m[row, i] = p[row];
+                }
+
+                // Scale the primaries so that they add up to the white point (Y = 1).
+                var white = XyToXyz(c[3]);
+                var inv = Invert(m);
+                for (int i = 0; i < 3; i++)
+                {
+                    double s = inv[i, 0] * white[0] + inv[i, 1] * white[1] + inv[i, 2] * white[2];
+                    for (int row = 0; row < 3; row++)
+                        m[row, i] *= s;
+                }
+
+                return m;
+            }
+
+            // Bradford chromatic adaptation from 'white' to D65.
+            static double[,] Adaptation(double[] white)
+            {
+                if (white[0] == k_D65[0] && white[1] == k_D65[1])
+                    return Identity();
+
+                var bradford = new double[,] { { 0.8951, 0.2664, -0.1614 }, { -0.7502, 1.7135, 0.0367 }, { 0.0389, -0.0685, 1.0296 } };
+                var src = XyToXyz(white);
+                var dst = XyToXyz(k_D65);
+                var scale = new double[3, 3];
+                for (int i = 0; i < 3; i++)
+                {
+                    double s = bradford[i, 0] * src[0] + bradford[i, 1] * src[1] + bradford[i, 2] * src[2];
+                    double d = bradford[i, 0] * dst[0] + bradford[i, 1] * dst[1] + bradford[i, 2] * dst[2];
+                    scale[i, i] = d / s;
+                }
+
+                return Multiply(Invert(bradford), Multiply(scale, bradford));
+            }
+
+            static double[] XyToXyz(double[] xy) => new[] { xy[0] / xy[1], 1.0, (1.0 - xy[0] - xy[1]) / xy[1] };
+
+            static double[,] Identity() => new double[,] { { 1, 0, 0 }, { 0, 1, 0 }, { 0, 0, 1 } };
+
+            static double[,] Multiply(double[,] a, double[,] b)
+            {
+                var r = new double[3, 3];
+                for (int i = 0; i < 3; i++)
+                for (int j = 0; j < 3; j++)
+                    r[i, j] = a[i, 0] * b[0, j] + a[i, 1] * b[1, j] + a[i, 2] * b[2, j];
+                return r;
+            }
+
+            static double[,] Invert(double[,] m)
+            {
+                double det = m[0, 0] * (m[1, 1] * m[2, 2] - m[1, 2] * m[2, 1])
+                           - m[0, 1] * (m[1, 0] * m[2, 2] - m[1, 2] * m[2, 0])
+                           + m[0, 2] * (m[1, 0] * m[2, 1] - m[1, 1] * m[2, 0]);
+                var r = new double[3, 3];
+                r[0, 0] = (m[1, 1] * m[2, 2] - m[1, 2] * m[2, 1]) / det;
+                r[0, 1] = (m[0, 2] * m[2, 1] - m[0, 1] * m[2, 2]) / det;
+                r[0, 2] = (m[0, 1] * m[1, 2] - m[0, 2] * m[1, 1]) / det;
+                r[1, 0] = (m[1, 2] * m[2, 0] - m[1, 0] * m[2, 2]) / det;
+                r[1, 1] = (m[0, 0] * m[2, 2] - m[0, 2] * m[2, 0]) / det;
+                r[1, 2] = (m[0, 2] * m[1, 0] - m[0, 0] * m[1, 2]) / det;
+                r[2, 0] = (m[1, 0] * m[2, 1] - m[1, 1] * m[2, 0]) / det;
+                r[2, 1] = (m[0, 1] * m[2, 0] - m[0, 0] * m[2, 1]) / det;
+                r[2, 2] = (m[0, 0] * m[1, 1] - m[0, 1] * m[1, 0]) / det;
+                return r;
             }
         }
     }

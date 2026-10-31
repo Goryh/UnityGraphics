@@ -20,10 +20,40 @@ namespace UnityEditor.Rendering.Universal
         UnityLogC,
         /// <summary>ARRI Alexa LogC3, EI 800 (linear range ~[0;55.08]).</summary>
         ArriLogC3,
-        /// <summary>ACEScct (linear range ~[0;222.9]). The primaries are not converted.</summary>
+        /// <summary>ACEScct (linear range ~[0;222.9]). Usually paired with the ACES AP1 gamut.</summary>
         ACEScct,
-        /// <summary>Sony S-Log3 (linear range ~[0;38.42]). The primaries are not converted.</summary>
+        /// <summary>Sony S-Log3 (linear range ~[0;38.42]). Usually paired with S-Gamut3 or S-Gamut3.Cine.</summary>
         SLog3,
+        /// <summary>DaVinci Intermediate (linear range ~[0;100]). Usually paired with DaVinci Wide Gamut.</summary>
+        DaVinciIntermediate,
+        /// <summary>Panasonic V-Log (linear range ~[0;46.1]). Usually paired with V-Gamut.</summary>
+        VLog,
+    }
+
+    /// <summary>
+    /// The color primaries a .cube LUT expects its input in, or produces its output in. URP grades with Rec709
+    /// primaries, colors are converted from and to them around the lookup.
+    /// </summary>
+    public enum CubeLutGamut
+    {
+        /// <summary>Rec709 / sRGB primaries, D65. No conversion.</summary>
+        Rec709,
+        /// <summary>Rec2020 primaries, D65.</summary>
+        Rec2020,
+        /// <summary>Display P3 primaries, D65.</summary>
+        P3D65,
+        /// <summary>ARRI Wide Gamut 3, D65 (paired with LogC3).</summary>
+        ArriWideGamut3,
+        /// <summary>Sony S-Gamut3, D65.</summary>
+        SGamut3,
+        /// <summary>Sony S-Gamut3.Cine, D65.</summary>
+        SGamut3Cine,
+        /// <summary>Panasonic V-Gamut, D65.</summary>
+        VGamut,
+        /// <summary>DaVinci Wide Gamut, D65.</summary>
+        DaVinciWideGamut,
+        /// <summary>ACES AP1 (ACEScg / ACEScct), ACES white point, Bradford adapted to D65.</summary>
+        ACES_AP1,
     }
 
     /// <summary>
@@ -49,16 +79,24 @@ namespace UnityEditor.Rendering.Universal
     /// black through the color: a polynomial is fit, in log2 / log2 space, on key points sampled in the top stops
     /// of the range, and evaluated past its end. See <see cref="CubeLutBaker"/>.
     /// </summary>
-    [ScriptedImporter(1, "cube")]
+    [ScriptedImporter(2, "cube")]
     public sealed class CubeLutImporter : ScriptedImporter
     {
         /// <summary>The transfer function the .cube expects its input in.</summary>
         [Tooltip("The transfer function the .cube expects its input in.")]
         public CubeLutEncoding inputEncoding = CubeLutEncoding.sRGB;
 
+        /// <summary>The color primaries the .cube expects its input in.</summary>
+        [Tooltip("The color primaries the .cube expects its input in.")]
+        public CubeLutGamut inputGamut = CubeLutGamut.Rec709;
+
         /// <summary>The transfer function the .cube encodes its output with.</summary>
         [Tooltip("The transfer function the .cube encodes its output with.")]
         public CubeLutEncoding outputEncoding = CubeLutEncoding.sRGB;
+
+        /// <summary>The color primaries the .cube produces its output in.</summary>
+        [Tooltip("The color primaries the .cube produces its output in.")]
+        public CubeLutGamut outputGamut = CubeLutGamut.Rec709;
 
         /// <summary>Size of the imported 3D texture. It is independent of the size of the .cube.</summary>
         [Tooltip("Size of the imported 3D texture. It is independent of the size of the .cube.")]
@@ -102,6 +140,8 @@ namespace UnityEditor.Rendering.Universal
             {
                 inputEncoding = inputEncoding,
                 outputEncoding = outputEncoding,
+                inputGamut = inputGamut,
+                outputGamut = outputGamut,
                 size = Mathf.Clamp(size, CubeLutBaker.k_MinSize, CubeLutBaker.k_MaxSize),
                 extrapolation = extrapolation,
                 polynomialOrder = Mathf.Clamp(polynomialOrder, 2, 4),
