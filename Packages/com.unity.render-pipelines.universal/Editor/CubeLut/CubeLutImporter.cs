@@ -87,7 +87,7 @@ namespace UnityEditor.Rendering.Universal
     /// of the range, and evaluated past its end. Or, for SDR grades, the whole HDR range is compressed into the
     /// input range with an invertible tonemapper around the lookup. See <see cref="CubeLutBaker"/>.
     /// </summary>
-    [ScriptedImporter(6, "cube")]
+    [ScriptedImporter(7, "cube")]
     public sealed class CubeLutImporter : ScriptedImporter
     {
         /// <summary>The transfer function the .cube expects its input in.</summary>
@@ -159,6 +159,17 @@ namespace UnityEditor.Rendering.Universal
         [Range(0f, 1f)]
         public float toneCurveStrength = 1f;
 
+        /// <summary>
+        /// How much of the brightness change of the .cube is kept. At 0 every color comes out with the luminance it
+        /// went in with: the .cube only changes its chromaticity (hue, saturation, tint), the brightness is left to
+        /// the rest of the grading and to the tonemapper. Unlike the tone curve, measured on the neutral axis, this
+        /// is done per color, so it also removes the darkening or brightening of the saturated colors. 1 keeps the
+        /// .cube as it is.
+        /// </summary>
+        [Tooltip("How much of the brightness change of the .cube is kept. At 0 every color comes out with the luminance it went in with: the .cube only changes its hue, saturation and tint. Done per color, unlike the tone curve, so it also removes the darkening or brightening of the saturated colors. 1 keeps the .cube as it is.")]
+        [Range(0f, 1f)]
+        public float luminanceStrength = 1f;
+
         /// <inheritdoc/>
         public override void OnImportAsset(AssetImportContext ctx)
         {
@@ -188,6 +199,7 @@ namespace UnityEditor.Rendering.Universal
                 tonemapKnee = Mathf.Clamp(tonemapKnee, 0.1f, 0.9f),
                 highlightRebuildStart = Mathf.Clamp(highlightRebuildStart, 0.5f, 1f),
                 toneCurveStrength = Mathf.Clamp01(toneCurveStrength),
+                luminanceStrength = Mathf.Clamp01(luminanceStrength),
             };
 
             var colors = CubeLutBaker.Bake(cube, settings);

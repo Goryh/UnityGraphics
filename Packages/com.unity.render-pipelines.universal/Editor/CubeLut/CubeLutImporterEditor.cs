@@ -18,6 +18,7 @@ namespace UnityEditor.Rendering.Universal
         SerializedProperty m_TonemapKnee;
         SerializedProperty m_HighlightRebuildStart;
         SerializedProperty m_ToneCurveStrength;
+        SerializedProperty m_LuminanceStrength;
 
         public override void OnEnable()
         {
@@ -35,6 +36,7 @@ namespace UnityEditor.Rendering.Universal
             m_TonemapKnee = serializedObject.FindProperty(nameof(CubeLutImporter.tonemapKnee));
             m_HighlightRebuildStart = serializedObject.FindProperty(nameof(CubeLutImporter.highlightRebuildStart));
             m_ToneCurveStrength = serializedObject.FindProperty(nameof(CubeLutImporter.toneCurveStrength));
+            m_LuminanceStrength = serializedObject.FindProperty(nameof(CubeLutImporter.luminanceStrength));
         }
 
         public override void OnInspectorGUI()
@@ -77,6 +79,7 @@ namespace UnityEditor.Rendering.Universal
             }
 
             EditorGUILayout.PropertyField(m_ToneCurveStrength, EditorGUIUtility.TrTextContent("Tone Curve", m_ToneCurveStrength.tooltip));
+            EditorGUILayout.PropertyField(m_LuminanceStrength, EditorGUIUtility.TrTextContent("Luminance", m_LuminanceStrength.tooltip));
 
             serializedObject.ApplyModifiedProperties();
             ApplyRevertGUI();

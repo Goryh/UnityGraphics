@@ -24,8 +24,8 @@ namespace UnityEditor.Rendering.Universal
         const int k_RebuildSearchSteps = 32;
         const int k_RebuildBisections = 10;
 
-        // Tone curve removal: largest gain applied to a color, so a .cube crushing its blacks to zero can't blow
-        // up the colors around them.
+        // Tone curve and luminance removal: largest gain applied to a color, so a .cube crushing its blacks to zero
+        // can't blow up the colors around them.
         const double k_MaxToneCurveGain = 1 << 16;
 
         // Bisection iterations inverting the Neutral tonemapper, enough to reach double precision on its range.
@@ -45,6 +45,7 @@ namespace UnityEditor.Rendering.Universal
             public float tonemapKnee;
             public float highlightRebuildStart;
             public float toneCurveStrength;
+            public float luminanceStrength;
         }
 
         struct Double3
@@ -100,6 +101,9 @@ namespace UnityEditor.Rendering.Universal
                 // Rec709 can't hold every color of a wider output gamut: those come out negative, clamp them
                 // like the LUT builder does with its result.
                 output = new Double3(Math.Max(0.0, output.x), Math.Max(0.0, output.y), Math.Max(0.0, output.z));
+
+                if (settings.luminanceStrength < 1f)
+                    output = baker.RemoveLuminance(linear, output);
 
                 colors[r + g * n + b * n * n] = new Color(
                     (float)Encodings.Encode(CubeLutEncoding.UnityLogC, output.x),
@@ -185,6 +189,16 @@ namespace UnityEditor.Rendering.Universal
                 double gain = Math.Min(target / Math.Max(toneCurve, k_LogFloor), k_MaxToneCurveGain);
 
                 return output * Math.Pow(gain, 1.0 - m_Settings.toneCurveStrength);
+            }
+
+            // Removes the brightness change of the .cube from 'output', its result (tone curve removal included) for
+            // the Rec709 color 'linear': the color is scaled to the luminance of the input, keeping only the
+            // chromaticity the .cube gives it. The strength blends the gain in log space.
+            public Double3 RemoveLuminance(in Double3 linear, in Double3 output)
+            {
+                double gain = Math.Min(linear.Luminance() / Math.Max(output.Luminance(), k_LogFloor), k_MaxToneCurveGain);
+
+                return output * Math.Pow(gain, 1.0 - m_Settings.luminanceStrength);
             }
 
             // Linear in the input gamut in, linear Rec709 out.
