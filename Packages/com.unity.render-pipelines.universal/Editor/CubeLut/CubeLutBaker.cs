@@ -24,6 +24,13 @@ namespace UnityEditor.Rendering.Universal
         const int k_RebuildSearchSteps = 32;
         const int k_RebuildBisections = 10;
 
+        // Tone curve removal: largest gain applied to a color, so a .cube crushing its blacks to zero can't blow
+        // up the colors around them.
+        const double k_MaxToneCurveGain = 1 << 16;
+
+        // Bisection iterations inverting the Neutral tonemapper, enough to reach double precision on its range.
+        const int k_InverseNeutralIterations = 64;
+
         internal struct Settings
         {
             public CubeLutEncoding inputEncoding;
@@ -37,6 +44,7 @@ namespace UnityEditor.Rendering.Universal
             public float fitRangeStops;
             public float tonemapKnee;
             public float highlightRebuildStart;
+            public float toneCurveStrength;
         }
 
         struct Double3
@@ -52,6 +60,9 @@ namespace UnityEditor.Rendering.Universal
             }
 
             public double Max() => Math.Max(x, Math.Max(y, z));
+
+            // Rec709 luminance.
+            public double Luminance() => 0.2126 * x + 0.7152 * y + 0.0722 * z;
 
             public static Double3 operator *(Double3 a, double b) => new Double3(a.x * b, a.y * b, a.z * b);
 
@@ -82,6 +93,9 @@ namespace UnityEditor.Rendering.Universal
                 // The ray extrapolation and the input range work in the input gamut of the .cube. Every gamut
                 // supported contains Rec709, so the converted color stays positive.
                 var output = baker.Evaluate(linear.Transform(baker.inputFromRec709));
+
+                if (settings.toneCurveStrength < 1f)
+                    output = baker.RemoveToneCurve(linear, output);
 
                 // Rec709 can't hold every color of a wider output gamut: those come out negative, clamp them
                 // like the LUT builder does with its result.
@@ -150,6 +164,27 @@ namespace UnityEditor.Rendering.Universal
                 m_KeyPointValues = new double[k];
                 m_Coefficients = new double[settings.polynomialOrder];
                 m_Normal = new double[settings.polynomialOrder, settings.polynomialOrder + 1];
+            }
+
+            // Replaces the tone curve of the .cube in 'output', its result for the Rec709 color 'linear', with the
+            // inverse of the URP Neutral tonemapper, which is applied after it.
+            //
+            // The tone curve G is the luminance the .cube produces for a gray input of luminance y. A gray has to
+            // come out of the .cube at N^-1(G(y)), so that the Neutral tonemapper N brings it back to G(y): in SDR the
+            // grays end up exactly where the .cube puts them, without being tonemapped twice. The color is scaled
+            // by N^-1(G(y)) / G(y): every color gets the same gain as the gray of the same input luminance, keeping
+            // the tint, hue and saturation changes of the .cube. The strength blends the gain in log space.
+            //
+            // A .cube clipping at 1 maps to the input Neutral brings to 1 (~4.04): the clipped highlights stay
+            // clipped, as the .cube intends them in SDR.
+            public Double3 RemoveToneCurve(in Double3 linear, in Double3 output)
+            {
+                double y = linear.Luminance();
+                double toneCurve = Evaluate(new Double3(y, y, y).Transform(inputFromRec709)).Luminance();
+                double target = Neutral.Inverse(toneCurve, Encodings.Decode(CubeLutEncoding.UnityLogC, 1.0));
+                double gain = Math.Min(target / Math.Max(toneCurve, k_LogFloor), k_MaxToneCurveGain);
+
+                return output * Math.Pow(gain, 1.0 - m_Settings.toneCurveStrength);
             }
 
             // Linear in the input gamut in, linear Rec709 out.
@@ -454,6 +489,40 @@ namespace UnityEditor.Rendering.Universal
                         sum -= m[row, k] * x[k];
                     x[row] = sum / m[row, row];
                 }
+            }
+        }
+
+        // The URP Neutral tonemapper, as NeutralTonemap in Color.hlsl. It has no clamp: it reaches 1 around 4.04 (the
+        // white scale is applied to its input as well as its output) and keeps rising towards ~1.226, so it can be
+        // inverted over the whole display range.
+        internal static class Neutral
+        {
+            const double k_A = 0.2, k_B = 0.29, k_C = 0.24, k_D = 0.272, k_E = 0.02, k_F = 0.3, k_WhiteLevel = 5.3;
+            static readonly double k_WhiteScale = 1.0 / Curve(k_WhiteLevel);
+
+            static double Curve(double x) => (x * (k_A * x + k_C * k_B) + k_D * k_E) / (x * (k_A * x + k_B) + k_D * k_F) - k_E / k_F;
+
+            public static double Tonemap(double x) => Curve(Math.Max(x, 0.0) * k_WhiteScale) * k_WhiteScale;
+
+            // The input in [0, max] the tonemapper maps to 'y'. The curve is monotonic, so it's a bisection.
+            public static double Inverse(double y, double max)
+            {
+                if (y <= 0.0)
+                    return 0.0;
+                if (y >= Tonemap(max))
+                    return max;
+
+                double lo = 0.0, hi = max;
+                for (int i = 0; i < k_InverseNeutralIterations; i++)
+                {
+                    double mid = 0.5 * (lo + hi);
+                    if (Tonemap(mid) < y)
+                        lo = mid;
+                    else
+                        hi = mid;
+                }
+
+                return 0.5 * (lo + hi);
             }
         }
 

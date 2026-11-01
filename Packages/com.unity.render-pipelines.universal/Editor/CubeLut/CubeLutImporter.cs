@@ -87,7 +87,7 @@ namespace UnityEditor.Rendering.Universal
     /// of the range, and evaluated past its end. Or, for SDR grades, the whole HDR range is compressed into the
     /// input range with an invertible tonemapper around the lookup. See <see cref="CubeLutBaker"/>.
     /// </summary>
-    [ScriptedImporter(4, "cube")]
+    [ScriptedImporter(6, "cube")]
     public sealed class CubeLutImporter : ScriptedImporter
     {
         /// <summary>The transfer function the .cube expects its input in.</summary>
@@ -148,6 +148,17 @@ namespace UnityEditor.Rendering.Universal
         [Range(0.5f, 1f)]
         public float highlightRebuildStart = 0.8f;
 
+        /// <summary>
+        /// How much of the tone curve of the .cube is kept as it is. A log to display .cube also renders the scene
+        /// for a display (contrast, highlight roll off), and URP tonemaps again after it. At 0 the tone curve of the
+        /// .cube, measured on its neutral axis, is replaced by the inverse of the URP Neutral tonemapper: once Neutral
+        /// is applied, the grays in SDR end up exactly where the .cube puts them, tonemapped once. 1 keeps the .cube
+        /// as it is, tonemapped twice.
+        /// </summary>
+        [Tooltip("How much of the tone curve of the .cube is kept as it is. At 0 its tone curve is replaced by the inverse of the URP Neutral tonemapper: once Neutral is applied, the grays in SDR end up exactly where the .cube puts them, tonemapped once. 1 keeps the .cube as it is, tonemapped twice. Meant for the Neutral tonemapper.")]
+        [Range(0f, 1f)]
+        public float toneCurveStrength = 1f;
+
         /// <inheritdoc/>
         public override void OnImportAsset(AssetImportContext ctx)
         {
@@ -176,6 +187,7 @@ namespace UnityEditor.Rendering.Universal
                 fitRangeStops = Mathf.Max(fitRangeStops, 0.5f),
                 tonemapKnee = Mathf.Clamp(tonemapKnee, 0.1f, 0.9f),
                 highlightRebuildStart = Mathf.Clamp(highlightRebuildStart, 0.5f, 1f),
+                toneCurveStrength = Mathf.Clamp01(toneCurveStrength),
             };
 
             var colors = CubeLutBaker.Bake(cube, settings);

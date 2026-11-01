@@ -17,6 +17,7 @@ namespace UnityEditor.Rendering.Universal
         SerializedProperty m_FitRangeStops;
         SerializedProperty m_TonemapKnee;
         SerializedProperty m_HighlightRebuildStart;
+        SerializedProperty m_ToneCurveStrength;
 
         public override void OnEnable()
         {
@@ -33,6 +34,7 @@ namespace UnityEditor.Rendering.Universal
             m_FitRangeStops = serializedObject.FindProperty(nameof(CubeLutImporter.fitRangeStops));
             m_TonemapKnee = serializedObject.FindProperty(nameof(CubeLutImporter.tonemapKnee));
             m_HighlightRebuildStart = serializedObject.FindProperty(nameof(CubeLutImporter.highlightRebuildStart));
+            m_ToneCurveStrength = serializedObject.FindProperty(nameof(CubeLutImporter.toneCurveStrength));
         }
 
         public override void OnInspectorGUI()
@@ -73,6 +75,8 @@ namespace UnityEditor.Rendering.Universal
                     EditorGUILayout.PropertyField(m_HighlightRebuildStart, EditorGUIUtility.TrTextContent("Highlight Rebuild", m_HighlightRebuildStart.tooltip));
                 }
             }
+
+            EditorGUILayout.PropertyField(m_ToneCurveStrength, EditorGUIUtility.TrTextContent("Tone Curve", m_ToneCurveStrength.tooltip));
 
             serializedObject.ApplyModifiedProperties();
             ApplyRevertGUI();
