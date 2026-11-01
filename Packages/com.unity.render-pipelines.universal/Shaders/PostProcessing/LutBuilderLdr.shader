@@ -21,6 +21,7 @@ Shader "Hidden/Universal Render Pipeline/LutBuilderLdr"
         float4 _ShaHiLimits;        // xy: shadows min/max, zw: highlight min/max
         half4 _SplitShadows;        // xyz: color, w: balance
         half4 _SplitHighlights;     // xyz: color, w: unused
+        float4x4 _PostWhiteBalance; // 3x3: post white balance, identity when inactive
 
         TEXTURE2D(_CurveMaster);
         TEXTURE2D(_CurveRed);
@@ -136,6 +137,9 @@ Shader "Hidden/Universal Render Pipeline/LutBuilderLdr"
                 float b = EvaluateCurve(_CurveBlue, c.b);
                 colorLinear = float3(r, g, b);
             }
+
+            // Post white balance, the white balance of the end of the stack (see ColorGradingLutPass)
+            colorLinear = mul((float3x3)_PostWhiteBalance, colorLinear);
 
             return half4(saturate(colorLinear), 1.0);
         }

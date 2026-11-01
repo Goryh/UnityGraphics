@@ -32,6 +32,7 @@ Shader "Hidden/Universal Render Pipeline/LutBuilderHdr"
         float4 _HDROutputLuminanceParams; // xy: brightness min/max, z: paper white brightness, w: 1.0 / brightness max
         float4 _HDROutputGradingParams; // x: eetf/range reduction mode, y: hue shift, zw: unused
         float4 _CubeLut_Params;     // x: (size - 1) / size, y: 0.5 / size, z: contribution, w: unused
+        float4x4 _PostWhiteBalance; // 3x3: post white balance in the grading space, identity when inactive
 
         TEXTURE3D(_CubeLut);
 
@@ -207,6 +208,10 @@ Shader "Hidden/Universal Render Pipeline/LutBuilderHdr"
             colorLinear = FastTonemapInvert(colorLinear);
 
             colorLinear = max(0.0, colorLinear);
+
+            // Post white balance, the white balance of the end of the stack (see ColorGradingLutPass)
+            colorLinear = max(0.0, mul((float3x3)_PostWhiteBalance, colorLinear));
+
             return RotateToColorGradeOutputSpace(colorLinear);
         }
 

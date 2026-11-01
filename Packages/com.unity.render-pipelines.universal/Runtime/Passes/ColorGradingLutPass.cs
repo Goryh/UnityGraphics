@@ -190,6 +190,7 @@ namespace UnityEngine.Rendering.Universal.Internal
                 var tonemapping = stack.GetComponent<Tonemapping>();
                 var whiteBalance = stack.GetComponent<WhiteBalance>();
                 var cubeLookup = stack.GetComponent<CubeLookup>();
+                var postWhiteBalance = stack.GetComponent<PostWhiteBalance>();
 
                 bool hdr = passData.postProcessingData.gradingMode == ColorGradingMode.HighDynamicRange;
 
@@ -250,6 +251,12 @@ namespace UnityEngine.Rendering.Universal.Internal
                 material.SetVector(ShaderConstants._ShaHiLimits, shadowsHighlightsLimits);
                 material.SetVector(ShaderConstants._SplitShadows, splitShadows);
                 material.SetVector(ShaderConstants._SplitHighlights, splitHighlights);
+
+                // With the ACES tonemapper the HDR grading works in ACEScg, the white balance has to go through Rec709
+                bool acesGrading = hdr && allowColorGradingACESHDR && tonemapping.mode.value == TonemappingMode.ACES;
+                material.SetMatrix(ShaderConstants._PostWhiteBalance, postWhiteBalance.IsActive()
+                    ? ComputePostWhiteBalance(postWhiteBalance.temperature.value, acesGrading)
+                    : Matrix4x4.identity);
 
                 // YRGB curves
                 material.SetTexture(ShaderConstants._CurveMaster, curves.master.value.GetTexture());
@@ -405,6 +412,50 @@ namespace UnityEngine.Rendering.Universal.Internal
             return hash;
         }
 
+        // Rec709 linear to CAT02 LMS and back, as LinearToLMS / LMSToLinear in Color.hlsl.
+        static readonly Matrix4x4 k_LinearToLMS = new Matrix4x4(
+            new Vector4(3.90405e-1f, 7.08416e-2f, 2.31082e-2f, 0f),
+            new Vector4(5.49941e-1f, 9.63172e-1f, 1.28021e-1f, 0f),
+            new Vector4(8.92632e-3f, 1.35775e-3f, 9.36245e-1f, 0f),
+            new Vector4(0f, 0f, 0f, 1f));
+
+        static readonly Matrix4x4 k_LMSToLinear = new Matrix4x4(
+            new Vector4(2.85847e+0f, -2.10182e-1f, -4.18120e-2f, 0f),
+            new Vector4(-1.62879e+0f, 1.15820e+0f, -1.18169e-1f, 0f),
+            new Vector4(-2.48910e-2f, 3.24281e-4f, 1.06867e+0f, 0f),
+            new Vector4(0f, 0f, 0f, 1f));
+
+        // Rec709 (D65) to ACEScg (D60) and back, white to white, as sRGB_2_AP1 / AP1_2_sRGB in ACES.hlsl.
+        static readonly Matrix4x4 k_Rec709ToACEScg = new Matrix4x4(
+            new Vector4(0.61319f, 0.07021f, 0.02062f, 0f),
+            new Vector4(0.33951f, 0.91634f, 0.10957f, 0f),
+            new Vector4(0.04737f, 0.01345f, 0.86961f, 0f),
+            new Vector4(0f, 0f, 0f, 1f));
+
+        static readonly Matrix4x4 k_ACEScgToRec709 = new Matrix4x4(
+            new Vector4(1.70505f, -0.13026f, -0.02400f, 0f),
+            new Vector4(-0.62179f, 1.14080f, -0.12897f, 0f),
+            new Vector4(-0.08326f, -0.01055f, 1.15297f, 0f),
+            new Vector4(0f, 0f, 0f, 1f));
+
+        // The post white balance as a single linear transform of the graded color. It's the same von Kries scaling
+        // in LMS as the regular white balance. The coefficients adapt the chosen illuminant to D65, and the LMS
+        // matrix maps the Rec709 white to that same D65 white. The regular white balance already outputs a D65
+        // white, so this stage adapts from it rather than adding another D65 adaptation: at 0 it's the identity,
+        // and the two stages combine as a product of their LMS coefficients.
+        static Matrix4x4 ComputePostWhiteBalance(float temperature, bool acesGrading)
+        {
+            var coeffs = ColorUtils.ColorBalanceToLMSCoeffs(temperature, 0f);
+            var balance = k_LMSToLinear * Matrix4x4.Scale(coeffs) * k_LinearToLMS;
+
+            // ACEScg has a D60 white: go through Rec709, whose conversions adapt the white, rather than balance
+            // around a white the coefficients don't refer to.
+            if (acesGrading)
+                balance = k_Rec709ToACEScg * balance * k_ACEScgToRec709;
+
+            return balance;
+        }
+
         /// <summary>
         /// Cleans up resources used by the pass.
         /// </summary>
@@ -445,6 +496,7 @@ namespace UnityEngine.Rendering.Universal.Internal
             public static readonly int _CurveSatVsSat = Shader.PropertyToID("_CurveSatVsSat");
             public static readonly int _CubeLut = Shader.PropertyToID("_CubeLut");
             public static readonly int _CubeLut_Params = Shader.PropertyToID("_CubeLut_Params");
+            public static readonly int _PostWhiteBalance = Shader.PropertyToID("_PostWhiteBalance");
         }
     }
 }
