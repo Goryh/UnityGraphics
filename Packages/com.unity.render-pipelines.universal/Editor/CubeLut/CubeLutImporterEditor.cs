@@ -15,6 +15,8 @@ namespace UnityEditor.Rendering.Universal
         SerializedProperty m_PolynomialOrder;
         SerializedProperty m_KeyPointCount;
         SerializedProperty m_FitRangeStops;
+        SerializedProperty m_TonemapKnee;
+        SerializedProperty m_HighlightRebuildStart;
 
         public override void OnEnable()
         {
@@ -29,6 +31,8 @@ namespace UnityEditor.Rendering.Universal
             m_PolynomialOrder = serializedObject.FindProperty(nameof(CubeLutImporter.polynomialOrder));
             m_KeyPointCount = serializedObject.FindProperty(nameof(CubeLutImporter.keyPointCount));
             m_FitRangeStops = serializedObject.FindProperty(nameof(CubeLutImporter.fitRangeStops));
+            m_TonemapKnee = serializedObject.FindProperty(nameof(CubeLutImporter.tonemapKnee));
+            m_HighlightRebuildStart = serializedObject.FindProperty(nameof(CubeLutImporter.highlightRebuildStart));
         }
 
         public override void OnInspectorGUI()
@@ -50,9 +54,25 @@ namespace UnityEditor.Rendering.Universal
             EditorGUILayout.LabelField("Baking", EditorStyles.boldLabel);
             EditorGUILayout.PropertyField(m_Size);
             EditorGUILayout.PropertyField(m_Extrapolation);
-            EditorGUILayout.PropertyField(m_PolynomialOrder);
-            EditorGUILayout.PropertyField(m_KeyPointCount);
-            EditorGUILayout.PropertyField(m_FitRangeStops);
+
+            using (new EditorGUI.IndentLevelScope())
+            {
+                bool mixed = m_Extrapolation.hasMultipleDifferentValues;
+                bool inverseTonemap = m_Extrapolation.intValue == (int)CubeLutExtrapolation.InverseTonemap;
+
+                if (mixed || !inverseTonemap)
+                {
+                    EditorGUILayout.PropertyField(m_PolynomialOrder);
+                    EditorGUILayout.PropertyField(m_KeyPointCount);
+                    EditorGUILayout.PropertyField(m_FitRangeStops);
+                }
+
+                if (mixed || inverseTonemap)
+                {
+                    EditorGUILayout.PropertyField(m_TonemapKnee, EditorGUIUtility.TrTextContent("Knee", m_TonemapKnee.tooltip));
+                    EditorGUILayout.PropertyField(m_HighlightRebuildStart, EditorGUIUtility.TrTextContent("Highlight Rebuild", m_HighlightRebuildStart.tooltip));
+                }
+            }
 
             serializedObject.ApplyModifiedProperties();
             ApplyRevertGUI();

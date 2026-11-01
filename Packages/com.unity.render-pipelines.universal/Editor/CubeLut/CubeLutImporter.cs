@@ -65,6 +65,13 @@ namespace UnityEditor.Rendering.Universal
         PerChannel,
         /// <summary>Fit the brightest output channel only and scale the output color at the top of the range, keeping its hue.</summary>
         PreserveHue,
+        /// <summary>
+        /// Treat the .cube as an SDR grade and stretch it to the HDR range: the colors are compressed into the input
+        /// range with a Reinhard shoulder above a knee, go through the .cube, and the result is expanded back with
+        /// the exact inverse. A neutral .cube stays neutral over the whole HDR range, the highlights follow the
+        /// shoulder of the .cube instead of a fit. Meant for display referred .cube files (sRGB, gamma 2.4).
+        /// </summary>
+        InverseTonemap,
     }
 
     /// <summary>
@@ -77,9 +84,10 @@ namespace UnityEditor.Rendering.Universal
     /// Display referred LUTs (sRGB, gamma 2.4) only cover linear [0;1] and log LUTs cover a range that can be
     /// smaller than the internal one. The colors above the input range are extrapolated along the ray going from
     /// black through the color: a polynomial is fit, in log2 / log2 space, on key points sampled in the top stops
-    /// of the range, and evaluated past its end. See <see cref="CubeLutBaker"/>.
+    /// of the range, and evaluated past its end. Or, for SDR grades, the whole HDR range is compressed into the
+    /// input range with an invertible tonemapper around the lookup. See <see cref="CubeLutBaker"/>.
     /// </summary>
-    [ScriptedImporter(2, "cube")]
+    [ScriptedImporter(4, "cube")]
     public sealed class CubeLutImporter : ScriptedImporter
     {
         /// <summary>The transfer function the .cube expects its input in.</summary>
@@ -122,6 +130,24 @@ namespace UnityEditor.Rendering.Universal
         [Range(0.5f, 8f)]
         public float fitRangeStops = 3f;
 
+        /// <summary>
+        /// Inverse Tonemap only: fraction of the input range left untouched by the tonemapper. The colors below it
+        /// reach the .cube unchanged, the ones above are compressed into the rest of the range.
+        /// </summary>
+        [Tooltip("Inverse Tonemap only: fraction of the input range left untouched by the tonemapper. The colors below it reach the .cube unchanged, the ones above are compressed into the rest of the range.")]
+        [Range(0.1f, 0.9f)]
+        public float tonemapKnee = 0.5f;
+
+        /// <summary>
+        /// Inverse Tonemap only: where the top of the .cube is rebuilt, as a fraction of the range above the knee.
+        /// An SDR grade often clips there, and a clipped output has nothing left to expand: it would jump to the
+        /// top of the HDR range. From the point where the input or the output of the .cube enters this band, its
+        /// brightness is replaced by a smooth curve continuing it to the top of the range. 1 disables it.
+        /// </summary>
+        [Tooltip("Inverse Tonemap only: where the top of the .cube is rebuilt, as a fraction of the range above the knee. From the point where the input or the output of the .cube enters this band, its brightness is replaced by a smooth curve continuing it to the top, instead of expanding clipped values. 1 disables it.")]
+        [Range(0.5f, 1f)]
+        public float highlightRebuildStart = 0.8f;
+
         /// <inheritdoc/>
         public override void OnImportAsset(AssetImportContext ctx)
         {
@@ -148,6 +174,8 @@ namespace UnityEditor.Rendering.Universal
                 // The top of the range is the constraint of the fit, the others have to determine the coefficients.
                 keyPointCount = Mathf.Max(keyPointCount, Mathf.Clamp(polynomialOrder, 2, 4) + 1),
                 fitRangeStops = Mathf.Max(fitRangeStops, 0.5f),
+                tonemapKnee = Mathf.Clamp(tonemapKnee, 0.1f, 0.9f),
+                highlightRebuildStart = Mathf.Clamp(highlightRebuildStart, 0.5f, 1f),
             };
 
             var colors = CubeLutBaker.Bake(cube, settings);

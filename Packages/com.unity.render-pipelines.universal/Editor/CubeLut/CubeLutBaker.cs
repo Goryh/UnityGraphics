@@ -19,6 +19,11 @@ namespace UnityEditor.Rendering.Universal
         // Steps used to make the extrapolated curve monotonic, between the top of the range and the color.
         const int k_MonotonicSteps = 32;
 
+        // Inverse Tonemap highlight rebuild: steps used to find where the output of the .cube enters the rebuilt
+        // band, then bisection iterations refining that point.
+        const int k_RebuildSearchSteps = 32;
+        const int k_RebuildBisections = 10;
+
         internal struct Settings
         {
             public CubeLutEncoding inputEncoding;
@@ -30,6 +35,8 @@ namespace UnityEditor.Rendering.Universal
             public int polynomialOrder;
             public int keyPointCount;
             public float fitRangeStops;
+            public float tonemapKnee;
+            public float highlightRebuildStart;
         }
 
         struct Double3
@@ -111,6 +118,14 @@ namespace UnityEditor.Rendering.Universal
             public readonly double[,] inputFromRec709;
             readonly double[,] m_Rec709FromOutput;
 
+            // Inverse Tonemap: knee of the shoulder, in linear, and the largest output it is allowed to expand. The
+            // latter is the top of the internal LUT range once compressed, so the expanded output stays inside it.
+            readonly double m_Knee;
+            readonly double m_MaxCompressedOutput;
+
+            // Inverse Tonemap: bottom of the rebuilt band at the top of the range, in compressed linear.
+            readonly double m_RebuildStart;
+
             public Baker(CubeLutFile cube, in Settings settings)
             {
                 m_Cube = cube;
@@ -128,6 +143,10 @@ namespace UnityEditor.Rendering.Universal
                 for (int i = 0; i < k; i++)
                     m_KeyPointStops[i] = -settings.fitRangeStops * i / (k - 1.0);
 
+                m_Knee = settings.tonemapKnee * m_RangeMax;
+                m_MaxCompressedOutput = Tonemap(Encodings.Decode(CubeLutEncoding.UnityLogC, 1.0));
+                m_RebuildStart = m_Knee + settings.highlightRebuildStart * (m_RangeMax - m_Knee);
+
                 m_KeyPointValues = new double[k];
                 m_Coefficients = new double[settings.polynomialOrder];
                 m_Normal = new double[settings.polynomialOrder, settings.polynomialOrder + 1];
@@ -136,6 +155,9 @@ namespace UnityEditor.Rendering.Universal
             // Linear in the input gamut in, linear Rec709 out.
             public Double3 Evaluate(in Double3 linear)
             {
+                if (m_Settings.extrapolation == CubeLutExtrapolation.InverseTonemap)
+                    return EvaluateInverseTonemap(linear);
+
                 double max = linear.Max();
                 if (max <= m_RangeMax)
                     return Sample(linear);
@@ -171,6 +193,123 @@ namespace UnityEditor.Rendering.Universal
                 }
 
                 return result;
+            }
+
+            // T^-1(LUT(T(x))). Both ways scale the color by the ratio of the tonemapped and the original brightest
+            // channel, so the compression keeps the hue going into the .cube and the expansion keeps the hue that
+            // comes out of it. The expansion is done in the output gamut, where the .cube produced the color.
+            Double3 EvaluateInverseTonemap(in Double3 linear)
+            {
+                double max = linear.Max();
+                var output = max > m_Knee ? SampleRebuilt(linear * (1.0 / max), Tonemap(max)) : SampleOutput(linear);
+
+                // The inverse goes to infinity at the top of the range, where an SDR grade often clips: clamp to the
+                // top of the internal range rather than expand past it.
+                double outputMax = output.Max();
+                if (outputMax > m_Knee)
+                    output = output * (InverseTonemap(Math.Min(outputMax, m_MaxCompressedOutput)) / outputMax);
+
+                return output.Transform(m_Rec709FromOutput);
+            }
+
+            // The .cube along the ray 'direction' (brightest channel 1) at compressed brightness 'x', with its top
+            // rebuilt. The rebuild starts at 'start', the lower of the bottom of the band and the point where the
+            // brightest channel of the output enters it. Above 'start' the output keeps the color of the .cube but
+            // its brightness follows a monotone cubic Hermite going from the .cube at 'start' (value and slope, so
+            // the curve stays C1) to the top of the range, which the expansion maps to the top of the HDR range.
+            // A neutral .cube gives the identity Hermite, so it stays neutral.
+            Double3 SampleRebuilt(in Double3 direction, double x)
+            {
+                var output = SampleOutput(direction * x);
+                if (m_RebuildStart >= m_RangeMax)
+                    return output;
+
+                double start = FindRebuildStart(direction);
+                if (x <= start)
+                    return output;
+
+                // Slope of the .cube at the start, backward difference over a small part of the shoulder.
+                double h = Math.Min(start - m_Knee, (m_RangeMax - m_Knee) / 256.0);
+                double y0 = SampleOutput(direction * start).Max();
+                double slope0 = h > 0.0 ? Math.Max(0.0, (y0 - SampleOutput(direction * (start - h)).Max()) / h) : 1.0;
+
+                double brightness = MonotoneHermite(x, start, y0, slope0, m_RangeMax, m_RangeMax, 1.0);
+
+                double outputMax = output.Max();
+                return outputMax > 0.0 ? output * (brightness / outputMax) : direction * brightness;
+            }
+
+            double FindRebuildStart(in Double3 direction)
+            {
+                // The input enters the band at m_RebuildStart, the output can enter it earlier.
+                double lo = m_Knee;
+                double hi = m_RebuildStart;
+                if (SampleOutput(direction * hi).Max() < m_RebuildStart)
+                    return hi;
+
+                for (int i = 1; i <= k_RebuildSearchSteps; i++)
+                {
+                    double x = m_Knee + (m_RebuildStart - m_Knee) * i / k_RebuildSearchSteps;
+                    if (SampleOutput(direction * x).Max() >= m_RebuildStart)
+                    {
+                        hi = x;
+                        break;
+                    }
+                    lo = x;
+                }
+
+                for (int i = 0; i < k_RebuildBisections; i++)
+                {
+                    double mid = 0.5 * (lo + hi);
+                    if (SampleOutput(direction * mid).Max() >= m_RebuildStart)
+                        hi = mid;
+                    else
+                        lo = mid;
+                }
+
+                return lo;
+            }
+
+            // Cubic Hermite from (x0, y0, m0) to (x1, y1, m1). The slopes are limited to three times the secant
+            // (Fritsch-Carlson), which keeps the curve monotonic: it never overshoots the top of the range.
+            static double MonotoneHermite(double x, double x0, double y0, double m0, double x1, double y1, double m1)
+            {
+                double dx = x1 - x0;
+                double secant = (y1 - y0) / dx;
+                if (secant <= 0.0)
+                    return y0;
+
+                m0 = Math.Min(m0, 3.0 * secant);
+                m1 = Math.Min(m1, 3.0 * secant);
+
+                double t = Math.Min(Math.Max((x - x0) / dx, 0.0), 1.0);
+                double t2 = t * t, t3 = t2 * t;
+                return (2.0 * t3 - 3.0 * t2 + 1.0) * y0
+                     + (t3 - 2.0 * t2 + t) * dx * m0
+                     + (-2.0 * t3 + 3.0 * t2) * y1
+                     + (t3 - t2) * dx * m1;
+            }
+
+            // Identity up to the knee, then a Reinhard shoulder towards the top of the input range. The shoulder
+            // starts with a slope of 1, so the curve is C1 at the knee.
+            double Tonemap(double x)
+            {
+                if (x <= m_Knee)
+                    return x;
+
+                double shoulder = m_RangeMax - m_Knee;
+                double t = x - m_Knee;
+                return m_Knee + shoulder * t / (shoulder + t);
+            }
+
+            double InverseTonemap(double y)
+            {
+                if (y <= m_Knee)
+                    return y;
+
+                double shoulder = m_RangeMax - m_Knee;
+                double t = y - m_Knee;
+                return m_Knee + shoulder * t / (shoulder - t);
             }
 
             // Fits y(x) = y0 + a1 x + ... + an x^n on (m_KeyPointStops, m_KeyPointValues), with y0 the value at
@@ -222,6 +361,12 @@ namespace UnityEditor.Rendering.Universal
             // Linear in the input gamut in, linear Rec709 out, within the input range of the .cube.
             Double3 Sample(in Double3 linear)
             {
+                return SampleOutput(linear).Transform(m_Rec709FromOutput);
+            }
+
+            // Linear in the input gamut in, linear in the output gamut out, within the input range of the .cube.
+            Double3 SampleOutput(in Double3 linear)
+            {
                 var cube = m_Cube;
                 var encoded = new Double3();
                 for (int c = 0; c < 3; c++)
@@ -234,7 +379,7 @@ namespace UnityEditor.Rendering.Universal
                 for (int c = 0; c < 3; c++)
                     output[c] = Encodings.Decode(m_Settings.outputEncoding, output[c]);
 
-                return output.Transform(m_Rec709FromOutput);
+                return output;
             }
 
             Double3 SampleTrilinear(in Double3 uvw)
